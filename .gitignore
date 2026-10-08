@@ -1,0 +1,18 @@
+# colcon
+build/
+install/
+log/
+
+# Archivos grandes o descargables que solo viven en la laptop
+# (imagen de la SD, QGroundControl, Betaflight Configurator, instaladores)
+local/
+
+# Python
+__pycache__/
+*.pyc
+
+# Bitácora, resumen de vuelos y logs de instalación: se quedan solo en la laptop
+privado/
+
+# Log de CycloneDDS que se crea donde se corre ROS 2
+cyclonedds.log

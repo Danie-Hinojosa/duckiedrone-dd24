@@ -1,0 +1,209 @@
+<?xml version="1.0"?>
+<!--
+  Duckiedrone DD24-B.
+  Mallas: Duckietown (dt-duckiebot-interface/packages/STL), en milímetros (scale 0.001).
+  Ejes ROS: x adelante (donde está la cámara), y izquierda, z arriba. base_link = cara superior
+  de la placa inferior.
+
+  Medido de las mallas: cada motor está al centro de un aro protector, en (±0.091, ±0.091) m
+  (aros con radio interior de 65 mm; hélices de ~63 mm de radio).
+  Tomado de fotos del dron: motores sobre la placa inferior, hélices entre los dos niveles de
+  aros, patas cilíndricas debajo de cada motor, Raspberry Pi y HAT sobre la placa superior,
+  batería colgada debajo con una correa, cámara al frente.
+  Medido: masa 1.76 kg con batería; tamaño total 315 x 283 x 116 mm (especificación).
+  Ojo: las placas de Duckietown miden 332 x 332 mm; falta revisar esa diferencia en el dron.
+  Estimado: inercia y alturas exactas de la electrónica.
+  Medido en el dron: placas separadas 35 mm; patas de 47 mm (placa inferior al piso).
+
+  Motores (numeración y giro de PX4):
+    1 adelante-derecha   CCW   2 atrás-izquierda   CCW
+    3 adelante-izquierda CW    4 atrás-derecha     CW
+-->
+<robot name="duckiedrone_dd24">
+
+  <material name="carbon"><color rgba="0.12 0.12 0.12 1"/></material>
+  <material name="black"><color rgba="0.05 0.05 0.05 1"/></material>
+  <material name="motor"><color rgba="0.75 0.15 0.10 1"/></material>
+  <material name="prop"><color rgba="1.0 0.92 0.0 0.9"/></material>
+  <material name="board"><color rgba="0.10 0.45 0.20 1"/></material>
+  <material name="hat"><color rgba="1.0 0.65 0.1 1"/></material>
+  <material name="battery"><color rgba="0.15 0.25 0.6 1"/></material>
+  <material name="sensor"><color rgba="0.1 0.5 0.9 1"/></material>
+
+  <!-- ===================== cuerpo ===================== -->
+  <link name="base_link">
+    <!-- placa inferior (con los aros inferiores y el montaje de los motores) -->
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry><mesh filename="package://duckiedrone_dd24/meshes/DD24_BottomPlate_GPIO_X_STL.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="carbon"/>
+    </visual>
+    <!-- placa superior (aros superiores), por encima de las hélices -->
+    <visual>
+      <origin xyz="0 0 0.035"/>
+      <geometry><mesh filename="package://duckiedrone_dd24/meshes/DD24_TopPlate_GPIO_X_STL.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="carbon"/>
+    </visual>
+    <!-- Raspberry Pi sobre la placa superior, con el HAT y la protoboard encima -->
+    <visual>
+      <origin xyz="0.005 0 0.046"/>
+      <geometry><box size="0.085 0.056 0.017"/></geometry>
+      <material name="board"/>
+    </visual>
+    <visual>
+      <origin xyz="0.012 0 0.0595"/>
+      <geometry><box size="0.065 0.050 0.010"/></geometry>
+      <material name="hat"/>
+    </visual>
+    <!-- controlador de vuelo y ESC entre placas -->
+    <visual>
+      <origin xyz="0 0 0.012"/>
+      <geometry><box size="0.040 0.040 0.016"/></geometry>
+      <material name="black"/>
+    </visual>
+    <!-- soporte de batería y batería 4S colgada debajo -->
+    <visual>
+      <origin xyz="-0.043 -0.0175 -0.003"/>
+      <geometry><mesh filename="package://duckiedrone_dd24/meshes/DD24_Proto_Battery_Support_4S_3Dprint_STL.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="black"/>
+    </visual>
+    <visual>
+      <!-- desplazada hacia atrás: en el dron real el ToF ve el piso, no la batería -->
+      <origin xyz="-0.05 0 -0.022"/>
+      <geometry><box size="0.075 0.035 0.034"/></geometry>
+      <material name="battery"/>
+    </visual>
+    <!-- soporte del ToF inferior -->
+    <visual>
+      <origin xyz="-0.070 -0.0255 -0.003"/>
+      <geometry><mesh filename="package://duckiedrone_dd24/meshes/DD24_ToF_Support_STL.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.007"/>
+      <geometry><box size="0.33 0.33 0.085"/></geometry>
+    </collision>
+  </link>
+
+  <!-- KDL no acepta inercia en el link raíz: la masa del cuerpo va en un link fijo aparte -->
+  <link name="body_inertia">
+    <inertial>
+      <!-- 1.76 kg pesado con batería; inercia de una caja de 315 x 283 x 116 mm al 60 %
+           (la masa se concentra al centro: Pi, batería, FC) -->
+      <origin xyz="0 0 0.010"/>
+      <mass value="1.76"/>
+      <inertia ixx="0.0082" ixy="0" ixz="0" iyy="0.0099" iyz="0" izz="0.0158"/>
+    </inertial>
+  </link>
+  <joint name="body_inertia_joint" type="fixed">
+    <parent link="base_link"/><child link="body_inertia"/>
+  </joint>
+
+  <!-- ===================== patas: un cilindro debajo de cada motor ===================== -->
+  <!-- la malla mide 43 mm; se escala a los 47 mm medidos en el dron -->
+  <link name="landing_gear_link">
+    <visual>
+      <origin xyz="0.091 -0.091 -0.0025" rpy="1.5708 0 0"/>
+      <geometry><mesh filename="package://duckiedrone_dd24/meshes/DD24_Landing_Gear_STL.stl" scale="0.001 0.001093 0.001"/></geometry>
+      <material name="black"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.091 0.091 -0.0025" rpy="1.5708 0 0"/>
+      <geometry><mesh filename="package://duckiedrone_dd24/meshes/DD24_Landing_Gear_STL.stl" scale="0.001 0.001093 0.001"/></geometry>
+      <material name="black"/>
+    </visual>
+    <visual>
+      <origin xyz="0.091 0.091 -0.0025" rpy="1.5708 0 0"/>
+      <geometry><mesh filename="package://duckiedrone_dd24/meshes/DD24_Landing_Gear_STL.stl" scale="0.001 0.001093 0.001"/></geometry>
+      <material name="black"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.091 -0.091 -0.0025" rpy="1.5708 0 0"/>
+      <geometry><mesh filename="package://duckiedrone_dd24/meshes/DD24_Landing_Gear_STL.stl" scale="0.001 0.001093 0.001"/></geometry>
+      <material name="black"/>
+    </visual>
+  </link>
+  <joint name="landing_gear_joint" type="fixed">
+    <parent link="base_link"/><child link="landing_gear_link"/>
+  </joint>
+
+  <!-- ===================== motores y hélices ===================== -->
+  <!-- origen de cada rotor a 3 mm sobre la placa inferior: con eso las aspas de la malla
+       (18.5-27.7 mm sobre su origen) quedan 4 mm debajo de la placa superior -->
+  <!-- motor 1: adelante-derecha, CCW -->
+  <link name="rotor_1">
+    <visual><origin xyz="0 0 0.006"/><geometry><cylinder radius="0.0135" length="0.018"/></geometry><material name="motor"/></visual>
+    <visual><geometry><mesh filename="package://duckiedrone_dd24/meshes/DD24_CCW_prop_STL.stl" scale="0.001 0.001 0.001"/></geometry><material name="prop"/></visual>
+  </link>
+  <joint name="rotor_1_joint" type="continuous">
+    <parent link="base_link"/><child link="rotor_1"/>
+    <origin xyz="0.091 -0.091 0.003"/><axis xyz="0 0 1"/>
+  </joint>
+
+  <!-- motor 2: atrás-izquierda, CCW -->
+  <link name="rotor_2">
+    <visual><origin xyz="0 0 0.006"/><geometry><cylinder radius="0.0135" length="0.018"/></geometry><material name="motor"/></visual>
+    <visual><geometry><mesh filename="package://duckiedrone_dd24/meshes/DD24_CCW_prop_STL.stl" scale="0.001 0.001 0.001"/></geometry><material name="prop"/></visual>
+  </link>
+  <joint name="rotor_2_joint" type="continuous">
+    <parent link="base_link"/><child link="rotor_2"/>
+    <origin xyz="-0.091 0.091 0.003"/><axis xyz="0 0 1"/>
+  </joint>
+
+  <!-- motor 3: adelante-izquierda, CW -->
+  <link name="rotor_3">
+    <visual><origin xyz="0 0 0.006"/><geometry><cylinder radius="0.0135" length="0.018"/></geometry><material name="motor"/></visual>
+    <visual><geometry><mesh filename="package://duckiedrone_dd24/meshes/DD24_CW_prop_STL.stl" scale="0.001 0.001 0.001"/></geometry><material name="prop"/></visual>
+  </link>
+  <joint name="rotor_3_joint" type="continuous">
+    <parent link="base_link"/><child link="rotor_3"/>
+    <origin xyz="0.091 0.091 0.003"/><axis xyz="0 0 1"/>
+  </joint>
+
+  <!-- motor 4: atrás-derecha, CW -->
+  <link name="rotor_4">
+    <visual><origin xyz="0 0 0.006"/><geometry><cylinder radius="0.0135" length="0.018"/></geometry><material name="motor"/></visual>
+    <visual><geometry><mesh filename="package://duckiedrone_dd24/meshes/DD24_CW_prop_STL.stl" scale="0.001 0.001 0.001"/></geometry><material name="prop"/></visual>
+  </link>
+  <joint name="rotor_4_joint" type="continuous">
+    <parent link="base_link"/><child link="rotor_4"/>
+    <origin xyz="-0.091 -0.091 0.003"/><axis xyz="0 0 1"/>
+  </joint>
+
+  <!-- ===================== sensores ===================== -->
+  <!-- controlador de vuelo (IMU) -->
+  <link name="imu_link"/>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/><child link="imu_link"/>
+    <origin xyz="0 0 0.012"/>
+  </joint>
+
+  <!-- ToF inferior: sensor_msgs/Range mide sobre +x, así que x apunta hacia abajo -->
+  <link name="tof_bottom_link">
+    <visual><origin xyz="-0.003 0 0"/><geometry><box size="0.006 0.012 0.012"/></geometry><material name="sensor"/></visual>
+  </link>
+  <joint name="tof_bottom_joint" type="fixed">
+    <parent link="base_link"/><child link="tof_bottom_link"/>
+    <origin xyz="0 0 -0.006" rpy="0 1.5708 0"/>
+  </joint>
+
+  <!-- cámara al frente, entre placas (posición estimada de las fotos) -->
+  <link name="camera_link">
+    <visual>
+      <origin xyz="-0.008 0.0222 -0.0066"/>
+      <geometry><mesh filename="package://duckiedrone_dd24/meshes/DD24_Camera_mount_STL.stl" scale="0.001 0.001 0.001"/></geometry>
+      <material name="black"/>
+    </visual>
+    <visual><origin xyz="0.006 0 0" rpy="0 1.5708 0"/><geometry><cylinder radius="0.007" length="0.012"/></geometry><material name="sensor"/></visual>
+  </link>
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/><child link="camera_link"/>
+    <origin xyz="0.075 0 0.018"/>
+  </joint>
+  <link name="camera_optical_frame"/>
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="camera_link"/><child link="camera_optical_frame"/>
+    <origin rpy="-1.5708 0 -1.5708"/>
+  </joint>
+
+</robot>

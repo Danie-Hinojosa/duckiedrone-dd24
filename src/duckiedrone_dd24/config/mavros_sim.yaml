@@ -1,0 +1,34 @@
+# MAVROS en la laptop, conectado a PX4 SITL (puerto offboard de PX4: 14540 -> 14580).
+# Mismos plugins que usa Duckietown en el dron, y thrust_scaling = 1.0 para setpoint_raw
+# (en el dron eso lo arregla dd-tof-fix).
+/mavros_node:
+  ros__parameters:
+    fcu_url: "udp://:14540@127.0.0.1:14580"
+    gcs_url: ""
+/mavros:
+  ros__parameters:
+    plugin_allowlist:
+      - actuator_control
+      - altitude
+      - command
+      - ftp
+      - global_position
+      - home_position
+      - imu
+      - local_position
+      - manual_control
+      - param
+      - rc_io
+      - setpoint_attitude
+      - setpoint_position
+      - setpoint_raw
+      - setpoint_velocity
+      - sys_status
+      - sys_time
+      - distance_sensor
+/mavros/setpoint_raw:
+  ros__parameters:
+    thrust_scaling: 1.0
+/mavros/setpoint_attitude:
+  ros__parameters:
+    use_quaternion: true

@@ -1,0 +1,12 @@
+[Unit]
+Description=Duckiedrone ToF->PX4 workaround (dt-ros2-interface distance_sensor bug)
+After=docker.service
+Requires=docker.service
+
+[Service]
+ExecStart=/opt/dd-tof-fix/dd-tof-fix.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
