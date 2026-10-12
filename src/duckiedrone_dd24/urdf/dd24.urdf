@@ -187,23 +187,44 @@
     <origin xyz="0 0 -0.006" rpy="0 1.5708 0"/>
   </joint>
 
-  <!-- cámara al frente, entre placas (posición estimada de las fotos) -->
-  <link name="camera_link">
+  <!-- Soporte de cámara al frente (malla de Duckietown). Se apoya sobre la placa inferior con una
+       pestaña de 3 mm en el borde delantero (la placa termina en x = 0.112 m) y sobresale ~25 mm.
+       En la malla el frente es -y y arriba es +z: se gira 90° en z. -->
+  <link name="camera_mount_link">
     <visual>
-      <origin xyz="-0.008 0.0222 -0.0066"/>
       <geometry><mesh filename="package://duckiedrone_dd24/meshes/DD24_Camera_mount_STL.stl" scale="0.001 0.001 0.001"/></geometry>
       <material name="black"/>
     </visual>
-    <visual><origin xyz="0.006 0 0" rpy="0 1.5708 0"/><geometry><cylinder radius="0.007" length="0.012"/></geometry><material name="sensor"/></visual>
+  </link>
+  <joint name="camera_mount_joint" type="fixed">
+    <parent link="base_link"/><child link="camera_mount_link"/>
+    <origin xyz="0.093 0.01795 0" rpy="0 0 1.5708"/>
+  </joint>
+
+  <!-- Cámara (OV5647, ojo de pez 160°). La cara del soporte donde va la tarjeta tiene normal
+       (0.64, 0, -0.77) en el dron: el eje óptico apunta 50° por debajo de la horizontal.
+       camera_link sigue la convención de ROS: x a lo largo del eje óptico. -->
+  <link name="camera_link">
+    <visual><origin xyz="-0.004 0 0" rpy="0 1.5708 0"/><geometry><cylinder radius="0.007" length="0.012"/></geometry><material name="sensor"/></visual>
   </link>
   <joint name="camera_joint" type="fixed">
     <parent link="base_link"/><child link="camera_link"/>
-    <origin xyz="0.075 0 0.018"/>
+    <origin xyz="0.1277 0 0.0082" rpy="0 0.8779 0"/>
   </joint>
   <link name="camera_optical_frame"/>
   <joint name="camera_optical_joint" type="fixed">
     <parent link="camera_link"/><child link="camera_optical_frame"/>
     <origin rpy="-1.5708 0 -1.5708"/>
+  </joint>
+
+  <!-- ToF frontal (VL53L1X) en la parte baja del soporte de cámara, mirando al frente.
+       Corre solo con el stack extra_sensors de Duckietown. -->
+  <link name="tof_front_link">
+    <visual><origin xyz="-0.003 0 0"/><geometry><box size="0.006 0.012 0.012"/></geometry><material name="sensor"/></visual>
+  </link>
+  <joint name="tof_front_joint" type="fixed">
+    <parent link="base_link"/><child link="tof_front_link"/>
+    <origin xyz="0.1375 0 -0.008"/>
   </joint>
 
 </robot>
