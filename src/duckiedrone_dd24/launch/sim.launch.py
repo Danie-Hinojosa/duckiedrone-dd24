@@ -13,7 +13,7 @@ import shutil
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, ExecuteProcess, OpaqueFunction,
-                            SetEnvironmentVariable, UnsetEnvironmentVariable)
+                            SetEnvironmentVariable, TimerAction, UnsetEnvironmentVariable)
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -30,15 +30,21 @@ def start_px4(context):
     shutil.copy(os.path.join(share, "sim", "airframes", "4061_gz_dd24"), airframes)
 
     models = os.path.join(share, "sim", "models")
+    world = os.path.join(share, "sim", "worlds", LaunchConfiguration("world").perform(context) + ".sdf")
+    resource = models + ":" + os.environ.get("GZ_SIM_RESOURCE_PATH", "")
+    headless = LaunchConfiguration("gui").perform(context).lower() in ("false", "0")
+    # Gazebo primero, con nuestro mundo; PX4 detecta el mundo que ya corre y se conecta a él
+    gz_cmd = ["gz", "sim", "-r", "--verbose=1"] + (["-s"] if headless else []) + [world]
+    gz = ExecuteProcess(cmd=gz_cmd, additional_env={"GZ_SIM_RESOURCE_PATH": resource}, output="screen",
+                        name="gazebo")
     env = {
-        "GZ_SIM_RESOURCE_PATH": models + ":" + os.environ.get("GZ_SIM_RESOURCE_PATH", ""),
+        "GZ_SIM_RESOURCE_PATH": resource,
         "PX4_SYS_AUTOSTART": "4061",
         "PX4_GZ_MODEL_POSE": "0,0,0.06,0,0,0",
+        "HEADLESS": "1",  # la ventana (si se pidió) ya la abrió el proceso de Gazebo de arriba
     }
-    if LaunchConfiguration("gui").perform(context).lower() in ("false", "0"):
-        env["HEADLESS"] = "1"
-    return [ExecuteProcess(cmd=[px4_bin, "-d"], cwd=px4_dir, additional_env=env, output="screen",
-                           name="px4_sitl")]
+    px4 = ExecuteProcess(cmd=[px4_bin, "-d"], cwd=px4_dir, additional_env=env, output="screen", name="px4_sitl")
+    return [gz, TimerAction(period=5.0, actions=[px4])]
 
 
 def start_mavros(context):
@@ -63,6 +69,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("px4_dir", default_value="~/duckiedrone_ws/local/PX4-Autopilot"),
         DeclareLaunchArgument("gui", default_value="true"),
+        DeclareLaunchArgument("world", default_value="dd24_lab", description="mundo en sim/worlds"),
         DeclareLaunchArgument("rviz", default_value="false"),
         DeclareLaunchArgument("vehicle", default_value="duckiedrone01"),
         # La simulación es local: no usar la sesión Zenoh del dron aunque la terminal la tenga
@@ -75,6 +82,18 @@ def generate_launch_description():
         Node(package="ros_gz_bridge", executable="parameter_bridge", name="gz_bridge_tof",
              arguments=["/dd24/tof_bottom/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan"]),
         Node(package="duckiedrone_dd24", executable="scan_to_range", parameters=[{"vehicle": vehicle}]),
+
+        # Cámara simulada -> ROS 2
+        Node(package="ros_gz_bridge", executable="parameter_bridge", name="gz_bridge_camera",
+             arguments=["/dd24/camera/image@sensor_msgs/msg/Image[gz.msgs.Image",
+                        "/dd24/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo",
+                        # pose verdadera (para validar estimadores y controladores)
+                        "/dd24/sim/ground_truth@nav_msgs/msg/Odometry[gz.msgs.Odometry"]),
+        # Posición por AprilTags (misma cuadrícula y tamaño que el PDF A4)
+        Node(package="duckiedrone_dd24", executable="tag_localizer", output="screen",
+             # En Gazebo la textura del tag queda girada 90° respecto a la hoja impresa (medido contra
+             # la pose verdadera): por eso el giro de los tags es pi aquí y -pi/2 en el dron real.
+             parameters=[{"tag_size": 0.16, "publish_debug": True, "tag_yaw_offset": 3.14159265}]),
 
         # MAVROS con la misma configuración de plugins que el dron (si está instalado)
         OpaqueFunction(function=start_mavros),

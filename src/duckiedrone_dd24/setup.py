@@ -1,4 +1,6 @@
+import os
 from glob import glob
+
 from setuptools import setup
 
 package_name = 'duckiedrone_dd24'
@@ -16,9 +18,11 @@ setup(
         ('share/' + package_name + '/rviz', glob('rviz/*')),
         ('share/' + package_name + '/config', glob('config/*')),
         ('share/' + package_name + '/sim/airframes', glob('sim/airframes/*')),
-        ('share/' + package_name + '/sim/models/dd24', ['sim/models/dd24/model.config',
-                                                        'sim/models/dd24/model.sdf']),
-        ('share/' + package_name + '/sim/models/dd24/meshes', glob('sim/models/dd24/meshes/*')),
+        ('share/' + package_name + '/sim/worlds', glob('sim/worlds/*')),
+    ] + [
+        # modelos de Gazebo (dd24 y los AprilTags), con todas sus subcarpetas
+        (os.path.join('share', package_name, root), [os.path.join(root, f) for f in files])
+        for root, _, files in os.walk('sim/models') if files
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -32,6 +36,7 @@ setup(
             'motor_monitor = duckiedrone_dd24.motor_monitor:main',
             'drone_state_bridge = duckiedrone_dd24.drone_state_bridge:main',
             'scan_to_range = duckiedrone_dd24.scan_to_range:main',
+            'tag_localizer = duckiedrone_dd24.tag_localizer:main',
         ],
     },
 )

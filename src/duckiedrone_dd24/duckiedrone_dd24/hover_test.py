@@ -239,6 +239,7 @@ class HoverTest:
         h_start = None
         t_ref0 = None
         t_reached = None
+        t_at_max = None
         force_sent = False
         h_base = 0.0      # altura desde la que arranca la rampa de despegue
         lift_ticks = 0
@@ -327,9 +328,12 @@ class HoverTest:
                     phase, t_phase, h_base = "takeoff", now, h
                     h_ref = h
                 elif thrust >= a.find_max:
-                    print(f"No despegó con empuje {a.find_max:.2f} -> desarmando. "
-                          "Revisa batería/hélices o sube --find-max.")
-                    phase, t_phase = "disarm", now
+                    # medio segundo de gracia en el tope: puede estar despegando justo ahí
+                    t_at_max = t_at_max or now
+                    if now - t_at_max > 0.5:
+                        print(f"No despegó con empuje {a.find_max:.2f} -> desarmando. "
+                              "Revisa batería/hélices o sube --find-max.")
+                        phase, t_phase = "disarm", now
             elif phase == "takeoff":
                 # velocidad de referencia que frena con ACCEL_REF antes de la altura objetivo
                 vz_ref = min(a.climb_rate, math.sqrt(2 * ACCEL_REF * max(0.0, a.height - h_ref)))
@@ -424,7 +428,7 @@ def main():
                    help="[1/s] rampa de empuje al buscar el hover")
     p.add_argument("--find-max-tilt", type=float, default=4.0,
                    help="[°] cambio máximo de inclinación respecto al reposo mientras busca el hover")
-    p.add_argument("--find-max", type=float, default=0.6,
+    p.add_argument("--find-max", type=float, default=0.7,
                    help="empuje máximo al buscar el hover antes de rendirse")
     p.add_argument("--kp", type=float, default=0.25)
     p.add_argument("--ki", type=float, default=0.15)
