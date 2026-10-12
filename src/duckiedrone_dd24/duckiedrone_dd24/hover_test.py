@@ -25,11 +25,16 @@ import time
 
 import rclpy
 from rclpy.qos import qos_profile_sensor_data
-from geometry_msgs.msg import TwistStamped, Quaternion
+from geometry_msgs.msg import PoseStamped, Quaternion, TwistStamped
 from mavros_msgs.msg import AttitudeTarget, RCOut, State
 from mavros_msgs.srv import CommandBool, CommandLong, SetMode
 from rcl_interfaces.srv import GetParameters
 from sensor_msgs.msg import BatteryState, Imu, Range
+
+try:  # como paquete (ros2 run/launch) o como archivo suelto (run_hover.sh copia ambos a /tmp)
+    from .horizontal_control import HorizontalController
+except ImportError:
+    from horizontal_control import HorizontalController
 
 RATE_HZ = 50.0
 STEP_M = 0.03       # salto entre lecturas del ToF (~30 Hz) que se considera escalón del piso
@@ -79,6 +84,12 @@ class HoverTest:
                                    self._on_vel, qos_profile_sensor_data)
         self.n.create_subscription(BatteryState, "/mavros/battery", self._on_batt, qos_profile_sensor_data)
         self.n.create_subscription(RCOut, "/mavros/rc/out", self._on_rcout, qos_profile_sensor_data)
+        # Control horizontal con AprilTags (opcional)
+        self.hc = None
+        if args.hold_position:
+            self.hc = HorizontalController(mode=args.hpos_mode, kp=args.hpos_kp, kd=args.hpos_kd,
+                                           ki=args.hpos_ki, max_tilt_deg=args.max_tilt)
+            self.n.create_subscription(PoseStamped, args.tag_topic, self._on_tag, 10)
         self.pub = self.n.create_publisher(AttitudeTarget, "/mavros/setpoint_raw/attitude", 10)
         self.arm_cli = self.n.create_client(CommandBool, "/mavros/cmd/arming")
         self.mode_cli = self.n.create_client(SetMode, "/mavros/set_mode")
@@ -91,6 +102,24 @@ class HoverTest:
     # --- callbacks -------------------------------------------------------------------------
     def _on_state(self, m): self.state = m
     def _on_imu(self, m): self.imu = m
+
+    def _on_tag(self, m):
+        if self.imu is None:
+            return
+        o = m.pose.orientation
+        yaw_tags = math.atan2(2 * (o.w * o.z + o.x * o.y), 1 - 2 * (o.y * o.y + o.z * o.z))
+        _, _, yaw_px4 = rpy_from_quaternion(self.imu.orientation)
+        self.hc.on_tag(time.monotonic(), m.pose.position.x, m.pose.position.y, yaw_tags, yaw_px4)
+
+    def accel_world(self):
+        """Aceleración sin gravedad en el marco ENU de PX4, a partir de la IMU."""
+        q, a = self.imu.orientation, self.imu.linear_acceleration
+        w, x, y, z = q.w, q.x, q.y, q.z
+        R = [[1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+             [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+             [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)]]
+        v = (a.x, a.y, a.z)
+        return [sum(R[i][j] * v[j] for j in range(3)) for i in range(2)]
     def _on_vel(self, m): self.vz = m.twist.linear.z
     def _on_batt(self, m): self.batt = m
     def _on_rcout(self, m): self.motors = list(m.channels[:4])
@@ -222,7 +251,9 @@ class HoverTest:
         self.log_file = open(a.log, "w", newline="", buffering=1)  # line-buffered: no se pierde el final
         self.log = csv.writer(self.log_file)
         self.log.writerow(["t", "phase", "h_ref", "h", "vz", "err", "integral", "thrust", "roll", "pitch", "batt_v", "vz_tof", "terrain_off",
-                           "m1_FR", "m2_RL", "m3_FL", "m4_RR"])
+                           "m1_FR", "m2_RL", "m3_FL", "m4_RR"]
+                           + (["px", "py", "vx", "vy", "ax_cmd", "ay_cmd", "sigma_x", "sigma_y", "roll_cmd", "pitch_cmd"]
+                              if self.hc is not None else []))
 
         # PX4 exige un flujo de setpoints antes de aceptar OFFBOARD
         t_end = time.monotonic() + 1.0
@@ -239,6 +270,7 @@ class HoverTest:
         h_start = None
         t_ref0 = None
         t_reached = None
+        t_lost = None
         t_at_max = None
         force_sent = False
         h_base = 0.0      # altura desde la que arranca la rampa de despegue
@@ -251,6 +283,10 @@ class HoverTest:
             h, roll, pitch = self.height()
             h_raw = self.height_raw()
             self.step_comp = phase == "hold" and h_raw > 0.15
+            hinfo = {"ok": False}
+            roll_c = pitch_c = 0.0
+            if self.hc is not None:
+                self.hc.predict(self.accel_world(), dt)
             tilt = max(abs(roll), abs(pitch))
             airborne = h > 0.12
 
@@ -282,6 +318,11 @@ class HoverTest:
                               "un lado empuja menos; revisa hélices/motores/centro de gravedad")
                 elif not st.armed or st.mode != "OFFBOARD":
                     reason = f"PX4 salió de OFFBOARD/armado (mode={st.mode}, armed={st.armed})"
+                if not reason and self.hc is not None and self.hc.ref is None and phase != "find_hover" \
+                        and h_raw > 0.4:
+                    # En el piso la cámara ve los tags muy de lado y casi nunca los detecta; el punto a
+                    # mantener se toma con el primer dato ya en el aire. Si a 40 cm no hay ninguno, se baja.
+                    reason = f"sin AprilTags en {a.tag_topic} (¿tag_localizer corriendo? ¿tags frente a la cámara?)"
                 if not reason and phase == "hold" and h_raw < self.ground_h + 0.03:
                     print(f"ABORTO: cayó al piso (h={h_raw:.3f} m) -> desarmando")
                     phase, t_phase = "disarm", now
@@ -398,17 +439,38 @@ class HoverTest:
 
             if phase in ("arming", "disarm"):
                 err = 0.0
+            # Punto a mantener: lo que ven los tags todavía en el piso (antes de que se mueva)
+            if self.hc is not None and self.hc.ref is None and phase != "disarm" and self.hc.tags_ok(now):
+                (px, py), _ = self.hc.state()
+                rx = px if math.isnan(a.hold_x) else a.hold_x
+                ry = py if math.isnan(a.hold_y) else a.hold_y
+                self.hc.set_reference(rx, ry)
+                print(f"Mantener posición en x={rx:+.2f} y={ry:+.2f} m (marco de los tags, modo {a.hpos_mode})")
             if phase in ("arming", "find_hover", "disarm"):
                 # En el piso: pedir la misma inclinación de reposo. Si se pide 0° y el dron descansa
                 # inclinado, PX4 no puede corregir y su integral se acumula -> se levanta un lado.
                 self.publish(thrust, yaw0, roll0, pitch0)
             else:
-                self.publish(thrust, yaw0)
+                if self.hc is not None and phase in ("takeoff", "hold", "descend") and h_raw > 0.08:
+                    roll_c, pitch_c, hinfo = self.hc.control(now, dt, integrate=(phase == "hold" or (phase == "takeoff" and h_raw > 0.3)))
+                    if phase == "hold" and not self.hc.tags_ok(now):
+                        t_lost = t_lost or now
+                        if now - t_lost > 3.0:
+                            print("ABORTO: perdí los AprilTags más de 3 s -> descendiendo")
+                            phase, t_phase = "descend", now
+                    else:
+                        t_lost = None
+                # sesgo de prueba (simula nivel/centro de gravedad desajustado; 0 en vuelo real)
+                self.publish(thrust, yaw0, roll_c + math.radians(a.test_roll_bias),
+                             pitch_c + math.radians(a.test_pitch_bias))
             self.log.writerow([f"{now - t0:.3f}", phase, f"{h_ref:.3f}", f"{h:.3f}", f"{self.vz:.3f}",
                                f"{err:.3f}", f"{self.integral:.3f}", f"{thrust:.3f}",
                                f"{math.degrees(roll):.1f}", f"{math.degrees(pitch):.1f}",
                                f"{self.batt.voltage:.2f}" if self.batt else "", f"{self.vz_tof:.3f}", f"{self.terrain_offset:.3f}"]
-                              + (self.motors + [""] * 4)[:4])
+                              + (self.motors + [""] * 4)[:4]
+                              + ([f"{hinfo.get(k, float('nan')):.3f}" for k in ("px", "py", "vx", "vy", "ax", "ay", "sx", "sy")]
+                                 + [f"{math.degrees(roll_c):.2f}", f"{math.degrees(pitch_c):.2f}"]
+                                 if self.hc is not None else []))
             while time.monotonic() < next_tick:
                 rclpy.spin_once(self.n, timeout_sec=max(0.0, next_tick - time.monotonic()))
         self.log_file.close()
@@ -442,6 +504,18 @@ def main():
     p.add_argument("--min-battery", type=float, default=50.0, help="[%%] mínimo para despegar")
     p.add_argument("--log", default="/tmp/hover_test.csv")
     p.add_argument("--dry-run", action="store_true", help="solo revisa sensores, no arma")
+    # control horizontal (mantener posición con AprilTags)
+    p.add_argument("--hold-position", action="store_true", help="mantener posición con los AprilTags")
+    p.add_argument("--hpos-mode", default="l1", choices=["pd", "l1"], help="pd: PID base; l1: PD + L1 adaptativo")
+    p.add_argument("--hpos-kp", type=float, default=1.5, help="[1/s^2] posición -> aceleración")
+    p.add_argument("--hpos-kd", type=float, default=2.0, help="[1/s] velocidad -> aceleración")
+    p.add_argument("--hpos-ki", type=float, default=0.5, help="integral (solo modo pd)")
+    p.add_argument("--max-tilt", type=float, default=10.0, help="[°] inclinación máxima del control horizontal")
+    p.add_argument("--hold-x", type=float, default=float("nan"), help="[m] punto a mantener (nan: donde despega)")
+    p.add_argument("--hold-y", type=float, default=float("nan"))
+    p.add_argument("--tag-topic", default="/dd24/tag_pose")
+    p.add_argument("--test-pitch-bias", type=float, default=0.0, help="[°] solo simulación: sesgo de pitch para probar el control")
+    p.add_argument("--test-roll-bias", type=float, default=0.0, help="[°] solo simulación: sesgo de roll")
     # ros2 run / ros2 launch agregan --ros-args ...: se quitan antes de argparse
     a = p.parse_args(rclpy.utilities.remove_ros_args(sys.argv)[1:])
 

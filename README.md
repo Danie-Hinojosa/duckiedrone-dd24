@@ -140,8 +140,40 @@ El CSV del vuelo se copia a `logs/flights/`. Los parámetros por defecto están 
 `src/duckiedrone_dd24/config/hover.yaml`, que también usa `hover.launch.py`.
 
 Antes de volar: hélices revisadas, batería cargada (4S, 16.8 V), piso despejado y mate, y el
-panel de Duckietown abierto con el botón KILL a la mano. No hay control horizontal todavía,
-así que el dron deriva.
+panel de Duckietown abierto con el botón KILL a la mano. Sin `--hold-position` no hay control
+horizontal y el dron deriva.
+
+## Mantener posición
+
+Con `--hold-position`, `hover_test` también controla x/y con los AprilTags. `tag_localizer`
+publica la pose en `/dd24/tag_pose`, un Kalman por eje la junta con la aceleración de la IMU y
+un PD calcula la aceleración que hace falta, que se convierte en roll/pitch para PX4 (máximo
+10°). Encima del PD va una aumentación L1 adaptativa (`--hpos-mode l1`, el modo por defecto)
+que estima la aceleración que empuja al dron hacia un lado (centro de gravedad corrido, nivel
+mal calibrado) y la resta. El otro modo, `pd`, usa una integral en su lugar.
+
+```bash
+ros2 launch duckiedrone_dd24 sim.launch.py gui:=false
+ros2 run duckiedrone_dd24 hover_test --height 1.0 --hold 20 --hold-position
+```
+
+El punto que se mantiene es el primero que ven los tags ya en el aire: desde el piso la cámara
+los ve muy de lado y no los detecta. Si a 40 cm todavía no hay ninguno, el dron baja, y si los
+pierde más de 3 s mientras está a la altura deseada, también.
+
+En la simulación (1 m, 20 s, logs en `logs/sim/`) se probó con un sesgo de 3° en pitch y -2° en
+roll (`--test-pitch-bias 3 --test-roll-bias -2`), que hace lo mismo que el desnivel que
+mandaba el dron real hacia adelante:
+
+| Prueba | Desplazamiento máx. | RMS a la altura | Aterrizó a |
+|---|---|---|---|
+| Sin control, con sesgo | más de 1 m (perdió los tags) | | |
+| PD + integral, con sesgo | 30 cm | 11 cm | 3 cm |
+| PD + L1, con sesgo | 11 cm | 3 cm | 1 cm |
+| PD + L1, sin sesgo | 9 cm | 3 cm | 2 cm |
+
+El PD solo tarda en compensar el sesgo porque su integral es lenta; el L1 lo estima en
+alrededor de un segundo. En el dron real falta resolver la imagen de la cámara antes de probarlo.
 
 ## El arreglo `dd-tof-fix`
 
