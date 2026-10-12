@@ -31,10 +31,6 @@ from mavros_msgs.srv import CommandBool, CommandLong, SetMode
 from rcl_interfaces.srv import GetParameters
 from sensor_msgs.msg import BatteryState, Imu, Range
 
-try:  # como paquete (ros2 run/launch) o como archivo suelto (run_hover.sh copia ambos a /tmp)
-    from .horizontal_control import HorizontalController
-except ImportError:
-    from horizontal_control import HorizontalController
 
 RATE_HZ = 50.0
 STEP_M = 0.03       # salto entre lecturas del ToF (~30 Hz) que se considera escalón del piso
@@ -87,6 +83,11 @@ class HoverTest:
         # Control horizontal con AprilTags (opcional)
         self.hc = None
         if args.hold_position:
+            # se importa aquí para que el control de altura funcione aunque falte numpy
+            try:  # como paquete (ros2 run/launch) o como archivo suelto (run_hover.sh copia ambos a /tmp)
+                from .horizontal_control import HorizontalController
+            except ImportError:
+                from horizontal_control import HorizontalController
             self.hc = HorizontalController(mode=args.hpos_mode, kp=args.hpos_kp, kd=args.hpos_kd,
                                            ki=args.hpos_ki, max_tilt_deg=args.max_tilt)
             self.n.create_subscription(PoseStamped, args.tag_topic, self._on_tag, 10)
