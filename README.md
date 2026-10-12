@@ -117,6 +117,14 @@ la posición (en el dron no hay GPS ni odometría visual), y el ToF no le llega 
 porque el puente de Gazebo de PX4 1.15 no lee sensores de distancia. Las constantes de los
 motores son estimadas para que el hover quede cerca del 55 % de la velocidad máxima.
 
+## AprilTags para mantener posición
+
+`tools/apriltags/` tiene los PDF listos para imprimir (`apriltags_tag36h11_A4_160mm.pdf` y la
+versión A3 con tags de 250 mm) y el script que los genera. La primera hoja explica cómo
+imprimirlos y el acomodo en el piso: una cuadrícula cada 40 cm alrededor del punto de despegue.
+Con la cámara del dron (ojo de pez de 160° a 480 px), un tag de 16 cm a 1.3 m ocupa unos 20 px,
+que es el límite para detectarlo bien; si se puede imprimir en A3, mejor.
+
 ## Prueba de hover
 
 `hover_test` sube a una altura, se mantiene y aterriza, con un PID de altura sobre el ToF en
@@ -187,5 +195,8 @@ no a la de este repositorio. Lo mismo aplica a `firmware/px4/duckiedrone-px4-v4.
 El firmware de `firmware/px4/` es PX4 (licencia BSD 3-Clause) compilado por Duckietown
 (`dd24-mamba-f405-mk2-v1.15.4-1`); el bootloader `omnibusf4sd_bl` es el que publica PX4.
 Betaflight (`firmware/betaflight/betaflight_4.3.2_STM32F405.hex`) tiene licencia GPL-3.0.
+
+Las imágenes de los AprilTags de `tools/apriltags/img/` (familia tag36h11) son las oficiales de
+[AprilRobotics/apriltag-imgs](https://github.com/AprilRobotics/apriltag-imgs) (licencia BSD-2).
 
 El resto del código (paquete `duckiedrone_dd24`, `tools/`) es nuestro.
