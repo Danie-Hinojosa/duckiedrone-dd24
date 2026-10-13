@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Puente entre el dron (MAVROS / drivers de Duckietown) y RViz.
+"""Bridge between the drone (MAVROS / Duckietown drivers) and RViz.
 
-- TF map -> base_link a partir de /mavros/local_position/pose (EKF de PX4).
-  Sin odometría visual, x/y del EKF no son confiables; z (con el ToF) y la orientación sí.
-- /joint_states para las 4 hélices del URDF, girando según la salida a cada motor (/mavros/rc/out).
-- Republica el ToF inferior en /dd24/tof_bottom con frame_id = tof_bottom_link.
+- TF map -> base_link from /mavros/local_position/pose (PX4 EKF).
+  Without visual odometry the EKF x/y are not reliable; z (with the ToF) and orientation are.
+- /joint_states for the 4 URDF propellers, spinning according to each motor output (/mavros/rc/out).
+- Republishes the bottom ToF on /dd24/tof_bottom with frame_id = tof_bottom_link.
 
-Con demo:=true no necesita el dron: solo publica /joint_states en cero (para ver el modelo).
+With demo:=true the drone is not needed: it only publishes /joint_states at zero (to view the model).
 """
 import math
 
@@ -18,9 +18,9 @@ from sensor_msgs.msg import JointState, Range
 from tf2_ros import TransformBroadcaster
 
 ROTOR_JOINTS = ["rotor_1_joint", "rotor_2_joint", "rotor_3_joint", "rotor_4_joint"]
-ROTOR_SIGN = [1.0, 1.0, -1.0, -1.0]   # 1 y 2 antihorario (CCW), 3 y 4 horario (CW), vistos desde arriba
-DSHOT_IDLE, DSHOT_MAX = 109.0, 1999.0  # valores de /mavros/rc/out en reposo y a tope
-VIS_MAX_RAD_S = 25.0                   # velocidad visual máxima (la real es demasiado rápida para verse)
+ROTOR_SIGN = [1.0, 1.0, -1.0, -1.0]   # 1 and 2 counterclockwise (CCW), 3 and 4 clockwise (CW), seen from above
+DSHOT_IDLE, DSHOT_MAX = 109.0, 1999.0  # /mavros/rc/out values at idle and full throttle
+VIS_MAX_RAD_S = 25.0                   # max displayed speed (the real one is too fast to see)
 
 
 class DroneStateBridge(Node):
@@ -37,7 +37,7 @@ class DroneStateBridge(Node):
         self.last_t = self.get_clock().now()
 
         if not self.demo:
-            from mavros_msgs.msg import RCOut  # solo hace falta con el dron (ros-jazzy-mavros-msgs)
+            from mavros_msgs.msg import RCOut  # only needed with the drone (ros-jazzy-mavros-msgs)
             self.tf = TransformBroadcaster(self)
             self.create_subscription(PoseStamped, "/mavros/local_position/pose", self.on_pose,
                                      qos_profile_sensor_data)
@@ -46,7 +46,7 @@ class DroneStateBridge(Node):
             self.create_subscription(Range, f"/{vehicle}/bottom_tof_driver_node/range", self.on_tof,
                                      qos_profile_sensor_data)
         self.create_timer(1.0 / 30.0, self.publish_joints)
-        self.get_logger().info("modo demo (sin dron)" if self.demo else f"conectado a {vehicle}")
+        self.get_logger().info("demo mode (no drone)" if self.demo else f"connected to {vehicle}")
 
     def on_pose(self, m: PoseStamped):
         t = TransformStamped()

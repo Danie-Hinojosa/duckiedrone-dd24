@@ -4,8 +4,8 @@
 #
 # @type Quadrotor
 #
-# Basado en 4001_gz_x500 con la geometría del DD24 (motores en ±0.091 m) y los ajustes
-# del dron real que importan para OFFBOARD sin radiocontrol.
+# Based on 4001_gz_x500 with the DD24 geometry (motors at ±0.091 m) and the real drone
+# settings that matter for OFFBOARD without an RC transmitter.
 
 . ${R}etc/init.d/rc.mc_defaults
 
@@ -54,13 +54,13 @@ param set-default SIM_GZ_EC_MAX3 2400
 param set-default SIM_GZ_EC_MAX4 2400
 
 param set-default MPC_THR_HOVER 0.55
-# masa 1.76 kg: en el dron real el empuje de hover medido fue ~0.52
+# mass 1.76 kg: hover thrust measured on the real drone was ~0.52
 
-# Como el dron real: se vuela por MAVLink desde la Pi, sin radiocontrol
+# Same as the real drone: flown over MAVLink from the Pi, no RC
 param set-default COM_RC_IN_MODE 4
 param set-default COM_RCL_EXCEPT 4
 param set-default NAV_DLL_ACT 0
 param set-default COM_OF_LOSS_T 1.0
 
-# Batería simulada: que no baje de 80 % (hover_test pide al menos 50 % para despegar)
+# Simulated battery: keep it at 80 % or more (hover_test needs at least 50 % to take off)
 param set-default SIM_BAT_MIN_PCT 80

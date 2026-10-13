@@ -3,16 +3,16 @@ build/
 install/
 log/
 
-# Archivos grandes o descargables que solo viven en la laptop
-# (imagen de la SD, QGroundControl, Betaflight Configurator, instaladores)
+# Large or downloadable files that only live on the laptop
+# (SD card image, QGroundControl, Betaflight Configurator, installers)
 local/
 
 # Python
 __pycache__/
 *.pyc
 
-# Bitácora, resumen de vuelos y logs de instalación: se quedan solo en la laptop
+# Logbook, flight summary and install logs: these stay on the laptop only
 privado/
 
-# Log de CycloneDDS que se crea donde se corre ROS 2
+# CycloneDDS log, created wherever ROS 2 is run
 cyclonedds.log

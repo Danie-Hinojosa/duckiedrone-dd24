@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Prueba de vuelo: despega a --height metros, se mantiene --hold segundos y aterriza.
+"""Flight test: take off to --height meters, hold for --hold seconds, then land.
 
-Control de altura propio (PID sobre el ToF inferior) en modo OFFBOARD de PX4:
-se publica una orientación nivelada + empuje en /mavros/setpoint_raw/attitude y
-PX4 estabiliza la actitud con sus propios PID. No hay control horizontal (no hay
-odometría visual), así que el dron puede derivar en x/y.
+Custom altitude control (PID on the bottom ToF) in PX4 OFFBOARD mode: a level
+attitude + thrust is published on /mavros/setpoint_raw/attitude and PX4
+stabilizes the attitude with its own PIDs. There is no horizontal control (no
+visual odometry), so the drone can drift in x/y.
 
-Se corre DENTRO del contenedor ros2-mavros del dron (ver run_hover.sh).
+Run it INSIDE the drone's ros2-mavros container (see run_hover.sh).
 
-Seguridad:
-  - Ctrl-C / SIGHUP / SIGTERM -> descenso controlado y desarme.
-  - Aborta (desciende) si: ToF sin datos > 0.3 s, altura > height + 0.6 m,
-    inclinación > 35°, sale de OFFBOARD o se desarma.
-  - Si este script muere, PX4 detecta pérdida de OFFBOARD (COM_OF_LOSS_T) y
-    aplica su failsafe.
-  - El KILL del dashboard sigue funcionando en todo momento.
+Safety:
+  - Ctrl-C / SIGHUP / SIGTERM -> controlled descent and disarm.
+  - Aborts (descends) if: no ToF data for > 0.3 s, height > height + 0.6 m,
+    tilt > 35°, it leaves OFFBOARD or gets disarmed.
+  - If this script dies, PX4 detects the OFFBOARD loss (COM_OF_LOSS_T) and
+    runs its failsafe.
+  - The dashboard KILL keeps working at all times.
 """
 import argparse
 import csv
@@ -33,12 +33,12 @@ from sensor_msgs.msg import BatteryState, Imu, Range
 
 
 RATE_HZ = 50.0
-STEP_M = 0.03       # salto entre lecturas del ToF (~30 Hz) que se considera escalón del piso
-                    # (en hover normal el 95 % de los cambios entre lecturas es < 1.4 cm)
-STEP_MAX_OFFSET = 0.30  # compensación máxima acumulada [m]
-CRASH_TILT_DEG = 45.0   # inclinación de choque/volteo: desarme forzado inmediato en cualquier fase
-LAND_TILT_DEG = 25.0    # cerca del piso (descenso/desarme), inclinación que indica que se está volteando
-ACCEL_REF = 0.5     # [m/s^2] desaceleración de la referencia al llegar a la altura objetivo
+STEP_M = 0.03       # jump between ToF readings (~30 Hz) treated as a step in the floor
+                    # (in normal hover 95 % of the changes between readings are < 1.4 cm)
+STEP_MAX_OFFSET = 0.30  # maximum accumulated compensation [m]
+CRASH_TILT_DEG = 45.0   # crash/flip tilt: immediate forced disarm in any phase
+LAND_TILT_DEG = 25.0    # near the floor (descend/disarm), tilt that means it is tipping over
+ACCEL_REF = 0.5     # [m/s^2] reference deceleration when approaching the target height
 TOF_TOPIC = "/duckiedrone01/bottom_tof_driver_node/range"
 
 
@@ -65,14 +65,14 @@ class HoverTest:
         self.imu = None
         self.rng = None
         self.rng_t = 0.0
-        self.vz = 0.0       # velocidad vertical del EKF de PX4 (solo se registra: no es fiable con el ToF < 4 cm)
-        self.vz_tof = 0.0   # velocidad vertical derivada del ToF (filtrada): la que usa el control
-        self._rng_prev = None    # (lectura cruda, lectura compensada, tiempo)
-        self.terrain_offset = 0.0  # compensa escalones del piso (objetos debajo del dron)
-        self.step_comp = False     # solo se compensan escalones en el aire (lo activa el lazo)
+        self.vz = 0.0       # vertical velocity from the PX4 EKF (logged only: unreliable with the ToF < 4 cm)
+        self.vz_tof = 0.0   # vertical velocity derived from the ToF (filtered): this is what the controller uses
+        self._rng_prev = None    # (raw reading, compensated reading, time)
+        self.terrain_offset = 0.0  # compensates floor steps (objects under the drone)
+        self.step_comp = False     # steps are only compensated in the air (the loop enables it)
         self.terrain_steps = 0
         self.batt = None
-        self.motors = []  # salidas a motores (MAIN 1-4) según PX4, vía /mavros/rc/out
+        self.motors = []  # motor outputs (MAIN 1-4) as reported by PX4, via /mavros/rc/out
         self.n.create_subscription(State, "/mavros/state", self._on_state, 10)
         self.n.create_subscription(Imu, "/mavros/imu/data", self._on_imu, qos_profile_sensor_data)
         self.n.create_subscription(Range, TOF_TOPIC, self._on_rng, qos_profile_sensor_data)
@@ -80,11 +80,11 @@ class HoverTest:
                                    self._on_vel, qos_profile_sensor_data)
         self.n.create_subscription(BatteryState, "/mavros/battery", self._on_batt, qos_profile_sensor_data)
         self.n.create_subscription(RCOut, "/mavros/rc/out", self._on_rcout, qos_profile_sensor_data)
-        # Control horizontal con AprilTags (opcional)
+        # Horizontal control with AprilTags (optional)
         self.hc = None
         if args.hold_position:
-            # se importa aquí para que el control de altura funcione aunque falte numpy
-            try:  # como paquete (ros2 run/launch) o como archivo suelto (run_hover.sh copia ambos a /tmp)
+            # imported here so altitude control still works if numpy is missing
+            try:  # as a package (ros2 run/launch) or as a loose file (run_hover.sh copies both to /tmp)
                 from .horizontal_control import HorizontalController
             except ImportError:
                 from horizontal_control import HorizontalController
@@ -113,7 +113,7 @@ class HoverTest:
         self.hc.on_tag(time.monotonic(), m.pose.position.x, m.pose.position.y, yaw_tags, yaw_px4)
 
     def accel_world(self):
-        """Aceleración sin gravedad en el marco ENU de PX4, a partir de la IMU."""
+        """Acceleration without gravity in the PX4 ENU frame, from the IMU."""
         q, a = self.imu.orientation, self.imu.linear_acceleration
         w, x, y, z = q.w, q.x, q.y, q.z
         R = [[1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
@@ -126,22 +126,22 @@ class HoverTest:
     def _on_rcout(self, m): self.motors = list(m.channels[:4])
 
     def _on_rng(self, m):
-        # Debajo de min_range (4 cm) el VL53 sigue midiendo de forma consistente en el piso
-        # (p. ej. alfombra: ~1-2 cm), así que se acepta; solo se descarta lo que pasa del máximo.
+        # Below min_range (4 cm) the VL53 still reads consistently on the floor
+        # (e.g. carpet: ~1-2 cm), so it is accepted; only readings above the maximum are dropped.
         if 0.0 <= m.range <= m.max_range:
             now = time.monotonic()
             r = m.range
             if self._rng_prev is not None:
                 step = r - self._rng_prev[0]
-                # Un salto grande entre dos lecturas sin aceleración real (|a| ~ g) no es el dron
-                # moviéndose: pasó sobre un objeto o una orilla. Se compensa en vez de reaccionar.
+                # A large jump between two readings with no real acceleration (|a| ~ g) is not the
+                # drone moving: it passed over an object or an edge. Compensate instead of reacting.
                 if self.step_comp and abs(step) > STEP_M and self.imu is not None:
                     acc = self.imu.linear_acceleration
                     if (abs(math.sqrt(acc.x ** 2 + acc.y ** 2 + acc.z ** 2) - 9.81) < 2.0
                             and abs(self.terrain_offset - step) <= STEP_MAX_OFFSET):
                         self.terrain_offset -= step
                         self.terrain_steps += 1
-                        print(f"Escalón del piso de {step * 100:+.0f} cm compensado "
+                        print(f"Compensated floor step of {step * 100:+.0f} cm "
                               f"(offset {self.terrain_offset * 100:+.0f} cm)")
                 dt_r = now - self._rng_prev[2]
                 if dt_r > 1e-3:
@@ -167,13 +167,13 @@ class HoverTest:
         return fut.result() if fut.done() else None
 
     def height(self):
-        """Altura sobre el piso de despegue: ToF corregido por inclinación y por escalones."""
+        """Height above the takeoff floor: ToF corrected for tilt and floor steps."""
         roll, pitch, _ = rpy_from_quaternion(self.imu.orientation)
         c = math.cos(roll) * math.cos(pitch)
         return (self.rng + self.terrain_offset) * c, roll, pitch
 
     def height_raw(self):
-        """Distancia a lo que haya justo debajo (para detectar el piso al aterrizar)."""
+        """Distance to whatever is directly below (to detect the floor when landing)."""
         roll, pitch, _ = rpy_from_quaternion(self.imu.orientation)
         return self.rng * math.cos(roll) * math.cos(pitch)
 
@@ -187,8 +187,8 @@ class HoverTest:
         self.pub.publish(m)
 
     def pid(self, h_ref, h, dt, airborne, tilt_comp, vz_ref=0.0, integrate=True):
-        """vz_ref: velocidad vertical deseada (rampa de subida/bajada) para la parte D.
-        integrate: solo se integra al mantener altura (evita windup durante la subida -> sobrepaso)."""
+        """vz_ref: desired vertical velocity (climb/descent ramp) for the D term.
+        integrate: only integrate while holding height (avoids windup during the climb -> overshoot)."""
         a = self.a
         e = h_ref - h
         if airborne and integrate:
@@ -196,7 +196,7 @@ class HoverTest:
         u = a.hover + a.kp * e + a.ki * self.integral + a.kd * (vz_ref - self.vz_tof)
         u /= tilt_comp
         u = max(a.thrust_min, min(a.thrust_max, u))
-        # limita el cambio de empuje por ciclo para evitar tirones
+        # limit the thrust change per cycle to avoid jerks
         step = a.thrust_slew / RATE_HZ
         self.thrust = max(self.thrust - step, min(self.thrust + step, u))
         return self.thrust, e
@@ -206,29 +206,29 @@ class HoverTest:
         self.spin_for(2.0)
         problems = []
         if not (self.state and self.state.connected):
-            problems.append("MAVROS no está conectado al FC")
+            problems.append("MAVROS is not connected to the FC")
         if self.state and self.state.armed:
-            problems.append("el dron ya está armado")
+            problems.append("the drone is already armed")
         if self.imu is None:
-            problems.append("sin datos de IMU")
+            problems.append("no IMU data")
         if self.rng is None or time.monotonic() - self.rng_t > 0.5:
-            problems.append(f"sin datos del ToF ({TOF_TOPIC})")
+            problems.append(f"no ToF data ({TOF_TOPIC})")
         elif self.rng > 0.2:
-            problems.append(f"ToF marca {self.rng:.2f} m: el dron debe estar en el piso")
+            problems.append(f"ToF reads {self.rng:.2f} m: the drone must be on the floor")
         if self.batt is not None and self.batt.percentage == self.batt.percentage:  # no NaN
             pct = self.batt.percentage * 100 if self.batt.percentage <= 1.0 else self.batt.percentage
-            print(f"Batería: {self.batt.voltage:.2f} V, {pct:.0f}%")
+            print(f"Battery: {self.batt.voltage:.2f} V, {pct:.0f}%")
             if pct < self.a.min_battery:
-                problems.append(f"batería {pct:.0f}% < {self.a.min_battery}%")
-        # thrust_scaling debe ser 1.0 (lo pone el servicio dd-tof-fix); si es NaN mavros descarta el empuje
+                problems.append(f"battery {pct:.0f}% < {self.a.min_battery}%")
+        # thrust_scaling must be 1.0 (set by the dd-tof-fix service); if it is NaN mavros drops the thrust
         cli = self.n.create_client(GetParameters, "/mavros/setpoint_raw/get_parameters")
         res = self.call(cli, GetParameters.Request(names=["thrust_scaling"]))
         ts = res.values[0].double_value if res and res.values else float("nan")
         if not ts == ts or abs(ts - 1.0) > 1e-6:
-            problems.append(f"setpoint_raw/thrust_scaling = {ts} (debe ser 1.0; ¿corre dd-tof-fix?)")
+            problems.append(f"setpoint_raw/thrust_scaling = {ts} (must be 1.0; is dd-tof-fix running?)")
         self.ground_h = self.rng if self.rng is not None else 0.0
         for p in problems:
-            print("PREFLIGHT FALLA:", p)
+            print("PREFLIGHT FAILED:", p)
         return not problems
 
     # --- main ------------------------------------------------------------------------------
@@ -238,10 +238,10 @@ class HoverTest:
             return 1
         roll0, pitch0, yaw0 = rpy_from_quaternion(self.imu.orientation)
         hover_txt = "auto" if a.hover is None else f"{a.hover:.2f}"
-        print(f"Preflight OK. Objetivo {a.height:.2f} m durante {a.hold:.0f} s "
+        print(f"Preflight OK. Target {a.height:.2f} m for {a.hold:.0f} s "
               f"(hover={hover_txt}, kp={a.kp}, ki={a.ki}, kd={a.kd})")
         if a.dry_run:
-            print("--dry-run: no se arma. Mostrando lecturas 5 s...")
+            print("--dry-run: not arming. Showing readings for 5 s...")
             end = time.monotonic() + 5
             while time.monotonic() < end:
                 self.spin_for(0.5)
@@ -249,14 +249,14 @@ class HoverTest:
                 print(f"  h={h:.3f} m  roll={math.degrees(r):5.1f}°  pitch={math.degrees(p):5.1f}°  vz={self.vz:+.2f}")
             return 0
 
-        self.log_file = open(a.log, "w", newline="", buffering=1)  # line-buffered: no se pierde el final
+        self.log_file = open(a.log, "w", newline="", buffering=1)  # line-buffered: the tail is not lost
         self.log = csv.writer(self.log_file)
         self.log.writerow(["t", "phase", "h_ref", "h", "vz", "err", "integral", "thrust", "roll", "pitch", "batt_v", "vz_tof", "terrain_off",
                            "m1_FR", "m2_RL", "m3_FL", "m4_RR"]
                            + (["px", "py", "vx", "vy", "ax_cmd", "ay_cmd", "sigma_x", "sigma_y", "roll_cmd", "pitch_cmd"]
                               if self.hc is not None else []))
 
-        # PX4 exige un flujo de setpoints antes de aceptar OFFBOARD
+        # PX4 requires a setpoint stream before it accepts OFFBOARD
         t_end = time.monotonic() + 1.0
         while time.monotonic() < t_end:
             self.publish(0.0, yaw0, roll0, pitch0)
@@ -274,7 +274,7 @@ class HoverTest:
         t_lost = None
         t_at_max = None
         force_sent = False
-        h_base = 0.0      # altura desde la que arranca la rampa de despegue
+        h_base = 0.0      # height where the takeoff ramp starts
         lift_ticks = 0
 
         while rclpy.ok():
@@ -291,53 +291,53 @@ class HoverTest:
             tilt = max(abs(roll), abs(pitch))
             airborne = h > 0.12
 
-            # --- volteo/choque: cortar motores ya (PX4 seguiría acelerando para enderezarlo) ---
+            # --- flip/crash: cut the motors now (PX4 would keep spinning up to level it) ---
             crash = tilt > math.radians(CRASH_TILT_DEG) or (
                 phase in ("descend", "disarm") and h_raw < 0.4 and tilt > math.radians(LAND_TILT_DEG))
             if crash and st.armed and phase in ("find_hover", "takeoff", "hold", "descend", "disarm") \
                     and not force_sent:
-                print(f"VOLTEO/CHOQUE: inclinación {math.degrees(tilt):.0f}° (h={h_raw:.2f} m) "
-                      "-> desarme forzado inmediato")
+                print(f"FLIP/CRASH: tilt {math.degrees(tilt):.0f}° (h={h_raw:.2f} m) "
+                      "-> immediate forced disarm")
                 self.cmd_cli.call_async(CommandLong.Request(command=400, param1=0.0, param2=21196.0))
                 force_sent = True
                 phase, t_phase = "disarm", now
 
-            # --- condiciones de aborto -> descenso ---
+            # --- abort conditions -> descend ---
             if phase in ("find_hover", "takeoff", "hold"):
                 reason = None
                 if self.stop_requested:
-                    reason = "interrupción del usuario"
+                    reason = "user interrupt"
                 elif now - self.rng_t > 0.3:
-                    reason = "ToF sin datos"
+                    reason = "no ToF data"
                 elif h > a.height + 0.6:
-                    reason = f"altura excesiva ({h:.2f} m)"
+                    reason = f"height too high ({h:.2f} m)"
                 elif tilt > math.radians(35):
-                    reason = f"inclinación excesiva ({math.degrees(tilt):.0f}°)"
+                    reason = f"tilt too high ({math.degrees(tilt):.0f}°)"
                 elif phase == "find_hover" and max(abs(roll - roll0), abs(pitch - pitch0)) > math.radians(a.find_max_tilt):
-                    reason = (f"se inclinó antes de despegar (Δroll={math.degrees(roll - roll0):+.1f}°, "
-                              f"Δpitch={math.degrees(pitch - pitch0):+.1f}°; pitch+ = nariz abajo): "
-                              "un lado empuja menos; revisa hélices/motores/centro de gravedad")
+                    reason = (f"tilted before takeoff (Δroll={math.degrees(roll - roll0):+.1f}°, "
+                              f"Δpitch={math.degrees(pitch - pitch0):+.1f}°; pitch+ = nose down): "
+                              "one side has less thrust; check props/motors/center of gravity")
                 elif not st.armed or st.mode != "OFFBOARD":
-                    reason = f"PX4 salió de OFFBOARD/armado (mode={st.mode}, armed={st.armed})"
+                    reason = f"PX4 left OFFBOARD/armed (mode={st.mode}, armed={st.armed})"
                 if not reason and self.hc is not None and self.hc.ref is None and phase != "find_hover" \
                         and h_raw > 0.4:
-                    # En el piso la cámara ve los tags muy de lado y casi nunca los detecta; el punto a
-                    # mantener se toma con el primer dato ya en el aire. Si a 40 cm no hay ninguno, se baja.
-                    reason = f"sin AprilTags en {a.tag_topic} (¿tag_localizer corriendo? ¿tags frente a la cámara?)"
+                    # On the floor the camera sees the tags at a steep angle and rarely detects them; the
+                    # hold point is taken from the first detection in the air. If there is none at 40 cm, land.
+                    reason = f"no AprilTags on {a.tag_topic} (is tag_localizer running? are the tags in front of the camera?)"
                 if not reason and phase == "hold" and h_raw < self.ground_h + 0.03:
-                    print(f"ABORTO: cayó al piso (h={h_raw:.3f} m) -> desarmando")
+                    print(f"ABORT: dropped to the floor (h={h_raw:.3f} m) -> disarming")
                     phase, t_phase = "disarm", now
                 if reason and phase == "find_hover":
-                    print("ABORTO:", reason, "-> desarmando (aún en el piso)")
+                    print("ABORT:", reason, "-> disarming (still on the floor)")
                     phase, t_phase = "disarm", now
                 elif reason:
-                    print("ABORTO:", reason, "-> descendiendo")
+                    print("ABORT:", reason, "-> descending")
                     phase, t_phase = "descend", now
             if phase == "arming" and self.stop_requested:
-                print("Interrumpido antes de despegar")
+                print("Interrupted before takeoff")
                 break
 
-            # --- máquina de estados ---
+            # --- state machine ---
             if phase == "arming":
                 thrust = 0.0
                 if st.mode != "OFFBOARD" and (mode_req is None or mode_req.done()):
@@ -347,61 +347,61 @@ class HoverTest:
                 if st.mode == "OFFBOARD" and st.armed:
                     self.thrust = a.thrust_min
                     if a.hover is None:
-                        print("OFFBOARD + armado. Buscando empuje de despegue...")
+                        print("OFFBOARD + armed. Searching for takeoff thrust...")
                         phase, t_phase = "find_hover", now
                     else:
-                        print("OFFBOARD + armado. Despegando.")
+                        print("OFFBOARD + armed. Taking off.")
                         phase, t_phase, h_base = "takeoff", now, 0.0
                         h_ref = 0.0
                 elif now - t_phase > 5.0:
-                    print(f"No se pudo armar/entrar a OFFBOARD (mode={st.mode}, armed={st.armed}). "
-                          "Revisa los avisos de PX4.")
+                    print(f"Could not arm/enter OFFBOARD (mode={st.mode}, armed={st.armed}). "
+                          "Check the PX4 warnings.")
                     break
             elif phase == "find_hover":
-                # rampa lenta de empuje hasta que el ToF detecta que despegó
+                # slow thrust ramp until the ToF detects liftoff
                 thrust = self.thrust = min(a.find_max, a.thrust_min + a.find_rate * (now - t_phase))
                 err = 0.0
                 lift_ticks = lift_ticks + 1 if h > self.ground_h + 0.06 else 0
                 if lift_ticks >= 3:
                     a.hover = max(a.thrust_min, thrust - 0.02)
                     a.thrust_max = min(0.9, a.hover + 0.2)
-                    print(f"Despegó con empuje {thrust:.3f} -> hover={a.hover:.3f}, "
-                          f"thrust_max={a.thrust_max:.3f}. Subiendo.")
+                    print(f"Lifted off at thrust {thrust:.3f} -> hover={a.hover:.3f}, "
+                          f"thrust_max={a.thrust_max:.3f}. Climbing.")
                     phase, t_phase, h_base = "takeoff", now, h
                     h_ref = h
                 elif thrust >= a.find_max:
-                    # medio segundo de gracia en el tope: puede estar despegando justo ahí
+                    # half a second of grace at the cap: it may be lifting off right there
                     t_at_max = t_at_max or now
                     if now - t_at_max > 0.5:
-                        print(f"No despegó con empuje {a.find_max:.2f} -> desarmando. "
-                              "Revisa batería/hélices o sube --find-max.")
+                        print(f"No liftoff at thrust {a.find_max:.2f} -> disarming. "
+                              "Check battery/props or raise --find-max.")
                         phase, t_phase = "disarm", now
             elif phase == "takeoff":
-                # velocidad de referencia que frena con ACCEL_REF antes de la altura objetivo
+                # reference velocity that brakes at ACCEL_REF before the target height
                 vz_ref = min(a.climb_rate, math.sqrt(2 * ACCEL_REF * max(0.0, a.height - h_ref)))
                 h_ref = min(a.height, h_ref + vz_ref * dt)
                 if a.height - h_ref < 0.003:
                     h_ref, vz_ref = a.height, 0.0
-                # Mientras la referencia sube, sin integral (evita el sobrepaso). Ya en la altura
-                # objetivo se activa, para corregir un hover estimado alto o bajo.
+                # No integral while the reference is climbing (avoids overshoot). It turns on at the
+                # target height to correct a hover estimate that is too high or too low.
                 reached = h_ref >= a.height
                 t_reached = (t_reached or now) if reached else None
                 thrust, err = self.pid(h_ref, h, dt, airborne, math.cos(roll) * math.cos(pitch),
                                        vz_ref=vz_ref, integrate=reached)
                 if reached and (abs(h - a.height) < 0.1 or now - t_reached > 2.0):
-                    print(f"Altura alcanzada ({h:.2f} m). Manteniendo {a.hold:.0f} s.")
+                    print(f"Height reached ({h:.2f} m). Holding for {a.hold:.0f} s.")
                     phase, t_phase = "hold", now
                 elif now - t_phase > (a.height - h_base) / a.climb_rate + 9.0:
-                    print("No alcanzó la altura a tiempo (¿hover muy bajo?) -> descendiendo")
+                    print("Did not reach the height in time (hover too low?) -> descending")
                     phase, t_phase = "descend", now
             elif phase == "hold":
                 h_ref = a.height
                 thrust, err = self.pid(h_ref, h, dt, airborne, math.cos(roll) * math.cos(pitch))
                 if now - t_phase >= a.hold:
-                    print("Tiempo cumplido. Aterrizando.")
+                    print("Time is up. Landing.")
                     phase, t_phase = "descend", now
             elif phase == "descend":
-                if h_start is None:  # el descenso arranca desde donde esté
+                if h_start is None:  # the descent starts from wherever it is
                     h_start = max(h_ref, h)
                 h_ref = max(0.0, h_start - a.descent_rate * (now - t_phase))
                 if h_ref > 0.0:
@@ -409,47 +409,47 @@ class HoverTest:
                                            vz_ref=-a.descent_rate)
                     t_ref0 = None
                 else:
-                    # referencia ya en el piso: bajar el empuje en rampa, sin PID
+                    # reference already on the floor: ramp the thrust down, no PID
                     t_ref0 = t_ref0 or now
                     thrust = self.thrust = max(a.thrust_min, self.thrust - 0.5 * dt)
                     err = -h
-                # en el piso según el ToF (no el EKF, que diverge con el ToF < 4 cm)
+                # on the floor according to the ToF (not the EKF, which diverges with the ToF < 4 cm)
                 grounded = h_raw < self.ground_h + 0.03
                 landed_since = (landed_since or now) if grounded else None
                 if landed_since and now - landed_since > 0.5:
-                    print("En el piso (ToF). Desarmando.")
+                    print("On the floor (ToF). Disarming.")
                     phase, t_phase = "disarm", now
                 elif t_ref0 and now - t_ref0 > 2.0 and h < 0.15:
-                    print("Referencia en el piso hace 2 s. Desarmando.")
+                    print("Reference has been on the floor for 2 s. Disarming.")
                     phase, t_phase = "disarm", now
             elif phase == "disarm":
                 thrust = 0.0
                 if st.armed and (arm_req is None or arm_req.done()):
                     arm_req = self.arm_cli.call_async(CommandBool.Request(value=False))
                 if st.armed and now - t_phase > 1.5 and not force_sent:
-                    # PX4 puede negar el desarme si cree que no ha aterrizado: forzar (ya estamos en el piso)
-                    print("PX4 no desarmó; forzando desarme.")
+                    # PX4 may refuse to disarm if it thinks it has not landed: force it (we are on the floor)
+                    print("PX4 did not disarm; forcing disarm.")
                     self.cmd_cli.call_async(CommandLong.Request(command=400, param1=0.0, param2=21196.0))
                     force_sent = True
                 if not st.armed:
-                    print("Desarmado. Fin.")
+                    print("Disarmed. Done.")
                     break
                 if now - t_phase > 5.0:
-                    print("PX4 no aceptó el desarme; usa Space/KILL en el dashboard.")
+                    print("PX4 did not accept the disarm; use Space/KILL in the dashboard.")
                     break
 
             if phase in ("arming", "disarm"):
                 err = 0.0
-            # Punto a mantener: lo que ven los tags todavía en el piso (antes de que se mueva)
+            # Hold point: what the tags see while still on the floor (before it moves)
             if self.hc is not None and self.hc.ref is None and phase != "disarm" and self.hc.tags_ok(now):
                 (px, py), _ = self.hc.state()
                 rx = px if math.isnan(a.hold_x) else a.hold_x
                 ry = py if math.isnan(a.hold_y) else a.hold_y
                 self.hc.set_reference(rx, ry)
-                print(f"Mantener posición en x={rx:+.2f} y={ry:+.2f} m (marco de los tags, modo {a.hpos_mode})")
+                print(f"Holding position at x={rx:+.2f} y={ry:+.2f} m (tags frame, mode {a.hpos_mode})")
             if phase in ("arming", "find_hover", "disarm"):
-                # En el piso: pedir la misma inclinación de reposo. Si se pide 0° y el dron descansa
-                # inclinado, PX4 no puede corregir y su integral se acumula -> se levanta un lado.
+                # On the floor: request the same resting tilt. If 0° is requested while the drone rests
+                # tilted, PX4 cannot correct it and its integral winds up -> one side lifts.
                 self.publish(thrust, yaw0, roll0, pitch0)
             else:
                 if self.hc is not None and phase in ("takeoff", "hold", "descend") and h_raw > 0.08:
@@ -457,11 +457,11 @@ class HoverTest:
                     if phase == "hold" and not self.hc.tags_ok(now):
                         t_lost = t_lost or now
                         if now - t_lost > 3.0:
-                            print("ABORTO: perdí los AprilTags más de 3 s -> descendiendo")
+                            print("ABORT: lost the AprilTags for more than 3 s -> descending")
                             phase, t_phase = "descend", now
                     else:
                         t_lost = None
-                # sesgo de prueba (simula nivel/centro de gravedad desajustado; 0 en vuelo real)
+                # test bias (simulates bad leveling/center of gravity; 0 in real flight)
                 self.publish(thrust, yaw0, roll_c + math.radians(a.test_roll_bias),
                              pitch_c + math.radians(a.test_pitch_bias))
             self.log.writerow([f"{now - t0:.3f}", phase, f"{h_ref:.3f}", f"{h:.3f}", f"{self.vz:.3f}",
@@ -476,54 +476,54 @@ class HoverTest:
                 rclpy.spin_once(self.n, timeout_sec=max(0.0, next_tick - time.monotonic()))
         self.log_file.close()
         if self.terrain_steps:
-            print(f"Escalones del piso compensados en el vuelo: {self.terrain_steps}")
+            print(f"Floor steps compensated during the flight: {self.terrain_steps}")
         print("Log:", a.log)
         return 0
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--height", type=float, default=1.0, help="altura objetivo [m] (máx 1.5)")
-    p.add_argument("--hold", type=float, default=20.0, help="tiempo en el aire [s]")
+    p.add_argument("--height", type=float, default=1.0, help="target height [m] (max 1.5)")
+    p.add_argument("--hold", type=float, default=20.0, help="time in the air [s]")
     p.add_argument("--hover", type=float, default=None,
-                   help="empuje de hover normalizado 0-1; por defecto se mide al despegar")
+                   help="normalized hover thrust 0-1; measured at takeoff by default")
     p.add_argument("--find-rate", type=float, default=0.12,
-                   help="[1/s] rampa de empuje al buscar el hover")
+                   help="[1/s] thrust ramp while searching for hover")
     p.add_argument("--find-max-tilt", type=float, default=4.0,
-                   help="[°] cambio máximo de inclinación respecto al reposo mientras busca el hover")
+                   help="[°] maximum tilt change from rest while searching for hover")
     p.add_argument("--find-max", type=float, default=0.7,
-                   help="empuje máximo al buscar el hover antes de rendirse")
+                   help="maximum thrust while searching for hover before giving up")
     p.add_argument("--kp", type=float, default=0.25)
     p.add_argument("--ki", type=float, default=0.15)
     p.add_argument("--kd", type=float, default=0.10)
-    p.add_argument("--i-max", type=float, default=2.0, help="límite del integrador [m·s]")
+    p.add_argument("--i-max", type=float, default=2.0, help="integrator limit [m·s]")
     p.add_argument("--thrust-min", type=float, default=0.05)
-    p.add_argument("--thrust-max", type=float, default=None, help="por defecto hover + 0.2")
-    p.add_argument("--thrust-slew", type=float, default=1.0, help="máx. cambio de empuje por segundo")
+    p.add_argument("--thrust-max", type=float, default=None, help="default: hover + 0.2")
+    p.add_argument("--thrust-slew", type=float, default=1.0, help="max thrust change per second")
     p.add_argument("--climb-rate", type=float, default=0.3, help="[m/s]")
     p.add_argument("--descent-rate", type=float, default=0.25, help="[m/s]")
-    p.add_argument("--min-battery", type=float, default=50.0, help="[%%] mínimo para despegar")
+    p.add_argument("--min-battery", type=float, default=50.0, help="[%%] minimum to take off")
     p.add_argument("--log", default="/tmp/hover_test.csv")
-    p.add_argument("--dry-run", action="store_true", help="solo revisa sensores, no arma")
-    # control horizontal (mantener posición con AprilTags)
-    p.add_argument("--hold-position", action="store_true", help="mantener posición con los AprilTags")
-    p.add_argument("--hpos-mode", default="l1", choices=["pd", "l1"], help="pd: PID base; l1: PD + L1 adaptativo")
-    p.add_argument("--hpos-kp", type=float, default=1.5, help="[1/s^2] posición -> aceleración")
-    p.add_argument("--hpos-kd", type=float, default=2.0, help="[1/s] velocidad -> aceleración")
-    p.add_argument("--hpos-ki", type=float, default=0.5, help="integral (solo modo pd)")
-    p.add_argument("--max-tilt", type=float, default=10.0, help="[°] inclinación máxima del control horizontal")
-    p.add_argument("--hold-x", type=float, default=float("nan"), help="[m] punto a mantener (nan: donde despega)")
+    p.add_argument("--dry-run", action="store_true", help="only check sensors, do not arm")
+    # horizontal control (position hold with AprilTags)
+    p.add_argument("--hold-position", action="store_true", help="hold position using the AprilTags")
+    p.add_argument("--hpos-mode", default="l1", choices=["pd", "l1"], help="pd: baseline PID; l1: PD + adaptive L1")
+    p.add_argument("--hpos-kp", type=float, default=1.5, help="[1/s^2] position -> acceleration")
+    p.add_argument("--hpos-kd", type=float, default=2.0, help="[1/s] velocity -> acceleration")
+    p.add_argument("--hpos-ki", type=float, default=0.5, help="integral (pd mode only)")
+    p.add_argument("--max-tilt", type=float, default=10.0, help="[°] maximum tilt of the horizontal controller")
+    p.add_argument("--hold-x", type=float, default=float("nan"), help="[m] hold point (nan: takeoff spot)")
     p.add_argument("--hold-y", type=float, default=float("nan"))
     p.add_argument("--tag-topic", default="/dd24/tag_pose")
-    p.add_argument("--test-pitch-bias", type=float, default=0.0, help="[°] solo simulación: sesgo de pitch para probar el control")
-    p.add_argument("--test-roll-bias", type=float, default=0.0, help="[°] solo simulación: sesgo de roll")
-    # ros2 run / ros2 launch agregan --ros-args ...: se quitan antes de argparse
+    p.add_argument("--test-pitch-bias", type=float, default=0.0, help="[°] simulation only: pitch bias to test the controller")
+    p.add_argument("--test-roll-bias", type=float, default=0.0, help="[°] simulation only: roll bias")
+    # ros2 run / ros2 launch add --ros-args ...: strip them before argparse
     a = p.parse_args(rclpy.utilities.remove_ros_args(sys.argv)[1:])
 
     rclpy.init(args=sys.argv)
     t = HoverTest(a)
-    # Cada opción también es un parámetro de ROS (p. ej. desde config/hover.yaml en un launch).
-    # El parámetro de ROS gana sobre el valor por defecto de argparse. -1.0 significa "sin valor".
+    # Every option is also a ROS parameter (e.g. from config/hover.yaml in a launch file).
+    # The ROS parameter wins over the argparse default. -1.0 means "no value".
     for k, v in vars(a).items():
         if isinstance(v, bool):
             pv = t.n.declare_parameter(k, v).value
@@ -534,7 +534,7 @@ def main():
             pv = None if pv == -1.0 else pv
         setattr(a, k, pv)
     if not 0.2 <= a.height <= 1.5:
-        t.n.get_logger().error("height debe estar entre 0.2 y 1.5 m")
+        t.n.get_logger().error("height must be between 0.2 and 1.5 m")
         return 2
     if a.thrust_max is None:
         a.thrust_max = min(0.9, (a.hover if a.hover is not None else a.find_max) + 0.2)

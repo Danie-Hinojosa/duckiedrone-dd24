@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Vista superior y lateral del URDF (sin RViz), para revisar posiciones de piezas.
-Uso: python3 tools/urdf_preview.py [salida.png]
+"""Top and side views of the URDF (without RViz), for checking where parts are placed.
+Usage: python3 tools/urdf_preview.py [output.png]
 """
 import math
 import struct
@@ -78,8 +78,8 @@ def main():
             W = (TT[:3, :3] @ P.T).T + TT[:3, 3]
             top.scatter(W[:, 0], W[:, 1], s=0.15, c=c, alpha=0.5)
             side.scatter(W[:, 0], W[:, 2], s=0.15, c=c, alpha=0.5)
-    for ax, title, ylab in ((top, "Vista superior (x adelante, y izquierda)", "y [m]"),
-                            (side, "Vista lateral (x adelante, z arriba)", "z [m]")):
+    for ax, title, ylab in ((top, "Top view (x forward, y left)", "y [m]"),
+                            (side, "Side view (x forward, z up)", "z [m]")):
         ax.set_aspect("equal")
         ax.set_title(title)
         ax.grid(alpha=0.3)

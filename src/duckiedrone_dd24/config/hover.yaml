@@ -1,5 +1,5 @@
-# Parámetros de hover_test (se pueden cambiar sin tocar el código).
-# -1.0 = sin valor (hover se mide al despegar; thrust_max = hover + 0.2).
+# hover_test parameters (can be changed without touching the code).
+# -1.0 = unset (hover is measured at takeoff; thrust_max = hover + 0.2).
 dd_hover_test:
   ros__parameters:
     hover: -1.0

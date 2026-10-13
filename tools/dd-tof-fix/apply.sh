@@ -1,6 +1,6 @@
 #!/bin/bash
-# Reaplica el workaround del ToF->PX4 (bug de dt-ros2-interface). Se pierde al reiniciar ros2-mavros o el dron.
-# Uso: ~/duckiedrone/workaround/apply.sh   (pide la contraseña de duckie si no hay sshpass/llave)
+# Reapplies the ToF->PX4 workaround (dt-ros2-interface bug). It is lost when ros2-mavros or the drone restarts.
+# Usage: ~/duckiedrone/workaround/apply.sh   (asks for the duckie password if there is no sshpass/key)
 set -e
 H=duckie@duckiedrone01.local
 D=$(dirname "$0")

@@ -1,7 +1,7 @@
-"""Ver el dron real en RViz desde la laptop.
+"""View the real drone in RViz from the laptop.
 
-Antes, en la misma terminal:  source tools/dron_ros2_env.sh   (rmw_zenoh, dominio 42)
-Luego:                         ros2 launch duckiedrone_dd24 drone_rviz.launch.py
+First, in the same terminal:  source tools/drone_ros2_env.sh   (rmw_zenoh, domain 42)
+Then:                          ros2 launch duckiedrone_dd24 drone_rviz.launch.py
 """
 import os
 

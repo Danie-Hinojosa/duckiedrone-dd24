@@ -1,4 +1,4 @@
-"""Ver el modelo del DD24 en RViz sin el dron: ros2 launch duckiedrone_dd24 display.launch.py"""
+"""View the DD24 model in RViz without the drone: ros2 launch duckiedrone_dd24 display.launch.py"""
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -12,7 +12,7 @@ def generate_launch_description():
     with open(os.path.join(share, "urdf", "dd24.urdf")) as f:
         urdf = f.read()
     return LaunchDescription([
-        # Solo es visualización local: no usar la sesión Zenoh del dron aunque la terminal la tenga cargada.
+        # Local visualization only: don't use the drone's Zenoh session even if the terminal has it sourced.
         SetEnvironmentVariable("RMW_IMPLEMENTATION", os.environ.get("DD24_LOCAL_RMW", "rmw_cyclonedds_cpp")),
         UnsetEnvironmentVariable("ZENOH_CONFIG_OVERRIDE"),
         Node(package="robot_state_publisher", executable="robot_state_publisher",

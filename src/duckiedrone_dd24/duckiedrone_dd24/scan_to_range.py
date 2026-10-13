@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Simulación: convierte el lidar de un rayo de Gazebo (LaserScan) en el sensor_msgs/Range que
-publica el driver del ToF en el dron real, en el mismo tópico. Así los nodos de control
-(hover_test y los que hagamos) corren igual en la simulación y en el dron.
+"""Simulation: converts the Gazebo single-ray lidar (LaserScan) into the sensor_msgs/Range that
+the ToF driver publishes on the real drone, on the same topic. This way the control nodes
+(hover_test and any we add later) run the same in simulation and on the drone.
 """
 import math
 
@@ -16,7 +16,7 @@ class ScanToRange(Node):
         super().__init__("tof_bottom_sim")
         vehicle = self.declare_parameter("vehicle", "duckiedrone01").value
         self.frame = self.declare_parameter("frame_id", "tof_bottom_link").value
-        self.fov = self.declare_parameter("field_of_view", 0.471).value  # VL53 real: 27°
+        self.fov = self.declare_parameter("field_of_view", 0.471).value  # real VL53: 27°
         self.pub = self.create_publisher(Range, f"/{vehicle}/bottom_tof_driver_node/range",
                                          qos_profile_sensor_data)
         self.create_subscription(LaserScan, "/dd24/tof_bottom/scan", self.on_scan, qos_profile_sensor_data)
@@ -32,7 +32,7 @@ class ScanToRange(Node):
         m.field_of_view = self.fov
         m.min_range = scan.range_min
         m.max_range = scan.range_max
-        # gz devuelve inf fuera de rango; el driver real reporta el máximo
+        # gz returns inf when out of range; the real driver reports the max
         m.range = scan.range_max if math.isinf(r) or math.isnan(r) else float(r)
         self.pub.publish(m)
 

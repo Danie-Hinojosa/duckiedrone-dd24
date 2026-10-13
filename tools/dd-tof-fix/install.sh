@@ -1,6 +1,6 @@
 #!/bin/bash
-# Instala el servicio dd-tof-fix en el dron. Uso: ~/duckiedrone/workaround/install.sh
-# Desinstalar (en el dron): sudo systemctl disable --now dd-tof-fix && sudo rm -rf /opt/dd-tof-fix /etc/systemd/system/dd-tof-fix.service
+# Installs the dd-tof-fix service on the drone. Usage: ~/duckiedrone/workaround/install.sh
+# Uninstall (on the drone): sudo systemctl disable --now dd-tof-fix && sudo rm -rf /opt/dd-tof-fix /etc/systemd/system/dd-tof-fix.service
 set -e
 H=${1:-duckie@duckiedrone01.local}
 D=$(dirname "$(readlink -f "$0")")

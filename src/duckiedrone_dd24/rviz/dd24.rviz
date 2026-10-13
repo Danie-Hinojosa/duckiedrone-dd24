@@ -40,7 +40,7 @@ Visualization Manager:
       Marker Scale: 0.3
       Value: true
     - Class: rviz_default_plugins/Range
-      Name: ToF inferior
+      Name: Bottom ToF
       Enabled: true
       Topic:
         Value: /dd24/tof_bottom
@@ -53,7 +53,7 @@ Visualization Manager:
       Buffer Length: 1
       Value: true
     - Class: rviz_default_plugins/Image
-      Name: Cámara
+      Name: Camera
       Enabled: true
       Topic:
         Value: /duckiedrone01/camera_node/image

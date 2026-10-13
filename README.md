@@ -1,30 +1,30 @@
 # Duckiedrone DD24-B
 
-Workspace de ROS 2 (Jazzy) con lo que usamos para armar, configurar y volar nuestro
-Duckiedrone DD24-B: el modelo del dron para RViz, un control de altura propio, el arreglo
-que tuvimos que hacerle al software de Duckietown, el firmware y los parámetros del
-controlador de vuelo, y los registros de cada vuelo.
+ROS 2 (Jazzy) workspace with what we use to build, configure and fly our Duckiedrone DD24-B:
+the drone model for RViz, our own altitude controller, the fix we had to apply to the
+Duckietown software, the flight controller firmware and parameters, and the log of each
+flight.
 
-El dron corre la imagen `ente` de Duckietown con PX4 1.15.4 en una Diatone Mamba F405 MK2 y
-MAVROS en la Raspberry Pi.
+The drone runs the Duckietown `ente` image with PX4 1.15.4 on a Diatone Mamba F405 MK2, and
+MAVROS on the Raspberry Pi.
 
-## Qué hay en cada carpeta
+## What is in each folder
 
 ```
-src/duckiedrone_dd24/   paquete de ROS 2: URDF, mallas, launch, RViz y nodos
-tools/dd-tof-fix/       servicio que se instala en el dron (ver abajo)
-tools/flight/           run_hover.sh, para correr la prueba de hover desde la laptop
-tools/dron_ros2_env.sh  prepara una terminal para hablar con el ROS 2 del dron
-firmware/px4/           bootloader, firmware y parámetros de PX4 que flasheamos
-firmware/betaflight/    Betaflight 4.3.2 y la configuración de Duckietown (solo para flashear los ESC)
-logs/flights/           un CSV por vuelo de prueba en el dron real
-logs/sim/               un CSV por vuelo de prueba en la simulación
+src/duckiedrone_dd24/   ROS 2 package: URDF, meshes, launch files, RViz and nodes
+tools/dd-tof-fix/       service installed on the drone (see below)
+tools/flight/           run_hover.sh, runs the hover test from the laptop
+tools/drone_ros2_env.sh sets up a terminal to talk to the drone's ROS 2
+firmware/px4/           PX4 bootloader, firmware and parameters that we flashed
+firmware/betaflight/    Betaflight 4.3.2 and the Duckietown configuration (only for flashing the ESCs)
+logs/flights/           one CSV per test flight on the real drone
+logs/sim/               one CSV per test flight in simulation
 ```
 
-`local/` no se sube al repositorio: ahí quedan la imagen de la microSD, QGroundControl y
-Betaflight Configurator, que pesan mucho y se pueden volver a descargar.
+`local/` is not pushed to the repository. It holds the microSD image, QGroundControl and
+Betaflight Configurator, which are large and can be downloaded again.
 
-## Compilar
+## Build
 
 ```bash
 cd ~/duckiedrone_ws
@@ -33,202 +33,206 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-Para conectarse al dron real hacen falta además:
+To connect to the real drone you also need:
 
 ```bash
 sudo apt install ros-jazzy-rmw-zenoh-cpp ros-jazzy-mavros-msgs
 ```
 
-## Ver el modelo sin el dron
+## View the model without the drone
 
 ```bash
 ros2 launch duckiedrone_dd24 display.launch.py
 ```
 
-El URDF (`src/duckiedrone_dd24/urdf/dd24.urdf`) usa las mallas STL que publica Duckietown en
-`dt-duckiebot-interface`. Cada motor va al centro de un aro protector, en (±91, ±91) mm, que
-sale de ajustar un círculo a los aros de las placas; las hélices miden ~63 mm de radio y los
-aros 65 mm por dentro. La disposición del resto (patas bajo cada motor, Raspberry Pi arriba,
-batería abajo, cámara al frente) sale de fotos del dron. Medimos en el dron la separación
-entre placas (35 mm) y el largo de las patas (47 mm, de la placa inferior al piso); con eso
-el ToF del modelo queda a 4.35 cm del piso, lo mismo que marca el sensor real en piso firme.
-La masa y las alturas de la electrónica siguen estimadas.
+The URDF (`src/duckiedrone_dd24/urdf/dd24.urdf`) uses the STL meshes that Duckietown publishes
+in `dt-duckiebot-interface`. Each motor sits at the center of a prop guard ring, at (±91, ±91) mm,
+which comes from fitting a circle to the rings on the plates; the propellers have a radius of
+~63 mm and the rings are 65 mm on the inside. The layout of everything else (legs under each
+motor, Raspberry Pi on top, battery underneath, camera at the front) comes from photos of the
+drone. We measured the plate spacing (35 mm) and the leg length (47 mm, from the bottom plate to
+the floor) on the drone; with those, the model's ToF ends up 4.35 cm above the floor, the same
+value the real sensor reads on a hard floor. The mass and the heights of the electronics are
+still estimates.
 
-Para revisar el modelo sin abrir RViz: `python3 tools/urdf_preview.py vista.png` genera una
-vista superior y una lateral.
+To check the model without opening RViz: `python3 tools/urdf_preview.py view.png` produces a
+top view and a side view.
 
-Los ejes son los de ROS: x hacia la cámara, y a la izquierda, z arriba. Los motores siguen la
-numeración de PX4:
+The axes follow the ROS convention: x toward the camera, y to the left, z up. The motors follow
+the PX4 numbering:
 
-| Motor | Posición | Giro |
+| Motor | Position | Rotation |
 |---|---|---|
-| 1 | adelante, derecha | antihorario |
-| 2 | atrás, izquierda | antihorario |
-| 3 | adelante, izquierda | horario |
-| 4 | atrás, derecha | horario |
+| 1 | front, right | counterclockwise |
+| 2 | rear, left | counterclockwise |
+| 3 | front, left | clockwise |
+| 4 | rear, right | clockwise |
 
-## Ver el dron real en RViz
+## View the real drone in RViz
 
-El dron usa `rmw_zenoh_cpp` en el dominio 42. La laptop se conecta directo al router de
-Zenoh del dron, así que los dos tienen que estar en una red donde se vean entre sí (algunas
-redes de invitados aíslan a los dispositivos; un hotspot o un router propio funcionan).
+The drone uses `rmw_zenoh_cpp` on domain 42. The laptop connects directly to the drone's Zenoh
+router, so both have to be on a network where they can reach each other (some guest networks
+isolate devices; a hotspot or your own router works).
 
 ```bash
-source tools/dron_ros2_env.sh      # en cada terminal que vaya a hablar con el dron
+source tools/drone_ros2_env.sh      # in every terminal that will talk to the drone
 ros2 launch duckiedrone_dd24 drone_rviz.launch.py
 ```
 
-`drone_state_bridge` convierte la pose del EKF de PX4 en la transformada `map -> base_link`,
-publica el ToF inferior en `/dd24/tof_bottom` con su frame y hace girar las hélices del modelo
-según la salida a cada motor. Sin odometría visual, la posición en x/y del EKF no es confiable;
-la altura y la orientación sí.
+`drone_state_bridge` turns the PX4 EKF pose into the `map -> base_link` transform, publishes
+the bottom ToF on `/dd24/tof_bottom` with its frame, and spins the model's propellers according
+to the output for each motor. Without visual odometry the EKF x/y position is not reliable;
+altitude and orientation are.
 
-## Simulación (en la laptop)
+## Simulation (on the laptop)
 
-La simulación corre en la laptop, no en la Raspberry Pi: PX4 SITL 1.15.4 (la misma versión
-del dron) con Gazebo Harmonic y MAVROS. El modelo `sim/models/dd24` tiene la geometría del URDF,
-1.76 kg y un lidar de un rayo hacia abajo que hace de ToF. Su lectura se publica en el mismo
-tópico que el driver real (`/duckiedrone01/bottom_tof_driver_node/range`), así que los nodos de
-control corren igual en la simulación y en el dron.
+The simulation runs on the laptop, not on the Raspberry Pi: PX4 SITL 1.15.4 (the same version
+as the drone) with Gazebo Harmonic and MAVROS. The `sim/models/dd24` model has the URDF geometry,
+1.76 kg and a single-ray downward lidar that stands in for the ToF. Its reading is published on
+the same topic as the real driver (`/duckiedrone01/bottom_tof_driver_node/range`), so the
+control nodes run the same way in simulation and on the drone.
 
-Una sola vez:
+Once:
 
 ```bash
 sudo apt install ros-jazzy-ros-gz ros-jazzy-mavros ros-jazzy-mavros-extras
 sudo /opt/ros/jazzy/lib/mavros/install_geographiclib_datasets.sh
-tools/sim/build_px4_sitl.sh        # descarga y compila PX4 en local/ (~10 min)
+tools/sim/build_px4_sitl.sh        # downloads and builds PX4 into local/ (~10 min)
 ```
 
-Cada vez:
+Every time:
 
 ```bash
-ros2 launch duckiedrone_dd24 sim.launch.py             # gui:=false sin ventana, rviz:=true con RViz
-ros2 run duckiedrone_dd24 hover_test --height 0.4 --hold 5   # en otra terminal
+ros2 launch duckiedrone_dd24 sim.launch.py             # gui:=false for no window, rviz:=true for RViz
+ros2 run duckiedrone_dd24 hover_test --height 0.4 --hold 5   # in another terminal
 ```
 
-Resultados en la simulación (logs en `logs/sim/`): con 1 m durante 20 s la altura media fue
-1.006 m (1.000 m en los últimos 10 s) y el empuje medio 0.525, muy cerca del 0.52-0.55 que
-usa el dron real. Al despegar se pasa unos 20 cm porque en la simulación el dron despega con
-más empuje del que necesita para sostenerse (0.59 contra 0.525) y el hover estimado sale alto;
-la integral lo corrige en unos segundos.
+Simulation results (logs in `logs/sim/`): at 1 m for 20 s the mean altitude was 1.006 m
+(1.000 m over the last 10 s) and the mean thrust 0.525, very close to the 0.52-0.55 the real
+drone uses. On takeoff it overshoots by about 20 cm, because in simulation the drone takes off
+with more thrust than it needs to hover (0.59 vs 0.525) and the estimated hover thrust comes out
+high; the integral term corrects it within a few seconds.
 
-Diferencias con el dron real: en la simulación PX4 usa barómetro y GPS simulados para estimar
-la posición (en el dron no hay GPS ni odometría visual), y el ToF no le llega al EKF de PX4
-porque el puente de Gazebo de PX4 1.15 no lee sensores de distancia. Las constantes de los
-motores son estimadas para que el hover quede cerca del 55 % de la velocidad máxima.
+Differences from the real drone: in simulation PX4 uses a simulated barometer and GPS to
+estimate position (the drone has no GPS or visual odometry), and the ToF does not reach the PX4
+EKF because the PX4 1.15 Gazebo bridge does not read distance sensors. The motor constants are
+estimated so that hover sits near 55 % of maximum speed.
 
-## AprilTags para mantener posición
+## AprilTags for position hold
 
-`tools/apriltags/` tiene los PDF listos para imprimir (`apriltags_tag36h11_A4_160mm.pdf` y la
-versión A3 con tags de 250 mm) y el script que los genera. La primera hoja explica cómo
-imprimirlos y el acomodo en el piso: una cuadrícula cada 40 cm alrededor del punto de despegue.
-Con la cámara del dron (ojo de pez de 160° a 480 px), un tag de 16 cm a 1.3 m ocupa unos 20 px,
-que es el límite para detectarlo bien; si se puede imprimir en A3, mejor.
+`tools/apriltags/` has print-ready PDFs (`apriltags_tag36h11_A4_160mm.pdf` and the A3 version
+with 250 mm tags) and the script that generates them. The first page explains how to print them
+and how to lay them out on the floor: a grid with 40 cm spacing around the takeoff point.
+With the drone's camera (160° fisheye at 480 px), a 16 cm tag at 1.3 m covers about 20 px,
+which is the limit for reliable detection; if you can print on A3, do.
 
-## Prueba de hover
+## Hover test
 
-`hover_test` sube a una altura, se mantiene y aterriza, con un PID de altura sobre el ToF en
-modo OFFBOARD (PX4 estabiliza la orientación). Mide solo el empuje de despegue, compensa
-escalones del piso y corta los motores si el dron se voltea. Corre en el dron, dentro del
-contenedor de MAVROS:
+`hover_test` climbs to a target altitude, holds it and lands, using an altitude PID on the ToF
+in OFFBOARD mode (PX4 stabilizes the attitude). It measures the takeoff thrust on its own,
+compensates for steps in the floor and cuts the motors if the drone flips over. It runs on the
+drone, inside the MAVROS container:
 
 ```bash
 tools/flight/run_hover.sh --height 1.0 --hold 20
 ```
 
-El CSV del vuelo se copia a `logs/flights/`. Los parámetros por defecto están en
-`src/duckiedrone_dd24/config/hover.yaml`, que también usa `hover.launch.py`.
+The flight CSV is copied to `logs/flights/`. The default parameters are in
+`src/duckiedrone_dd24/config/hover.yaml`, which `hover.launch.py` also uses.
 
-Antes de volar: hélices revisadas, batería cargada (4S, 16.8 V), piso despejado y mate, y el
-panel de Duckietown abierto con el botón KILL a la mano. Sin `--hold-position` no hay control
-horizontal y el dron deriva.
+Before flying: propellers checked, battery charged (4S, 16.8 V), floor clear and matte, and the
+Duckietown dashboard open with the KILL button within reach. Without `--hold-position` there is
+no horizontal control and the drone drifts.
 
-## Mantener posición
+## Position hold
 
-Con `--hold-position`, `hover_test` también controla x/y con los AprilTags. `tag_localizer`
-publica la pose en `/dd24/tag_pose`, un Kalman por eje la junta con la aceleración de la IMU y
-un PD calcula la aceleración que hace falta, que se convierte en roll/pitch para PX4 (máximo
-10°). Encima del PD va una aumentación L1 adaptativa (`--hpos-mode l1`, el modo por defecto)
-que estima la aceleración que empuja al dron hacia un lado (centro de gravedad corrido, nivel
-mal calibrado) y la resta. El otro modo, `pd`, usa una integral en su lugar.
+With `--hold-position`, `hover_test` also controls x/y using the AprilTags. `tag_localizer`
+publishes the pose on `/dd24/tag_pose`, a per-axis Kalman filter fuses it with the IMU
+acceleration, and a PD computes the required acceleration, which is converted into roll/pitch
+for PX4 (10° max). On top of the PD there is an adaptive L1 augmentation (`--hpos-mode l1`, the
+default) that estimates the acceleration pushing the drone to one side (offset center of
+gravity, badly calibrated level) and subtracts it. The other mode, `pd`, uses an integral term
+instead.
 
 ```bash
 ros2 launch duckiedrone_dd24 sim.launch.py gui:=false
 ros2 run duckiedrone_dd24 hover_test --height 1.0 --hold 20 --hold-position
 ```
 
-El punto que se mantiene es el primero que ven los tags ya en el aire: desde el piso la cámara
-los ve muy de lado y no los detecta. Si a 40 cm todavía no hay ninguno, el dron baja, y si los
-pierde más de 3 s mientras está a la altura deseada, también.
+The hold point is the first position the tags give once the drone is in the air: from the
+ground the camera sees them at too shallow an angle to detect them. If no tag is in view yet at
+40 cm, the drone comes back down, and it does the same if it loses them for more than 3 s while
+at the target altitude.
 
-En la simulación (1 m, 20 s, logs en `logs/sim/`) se probó con un sesgo de 3° en pitch y -2° en
-roll (`--test-pitch-bias 3 --test-roll-bias -2`), que hace lo mismo que el desnivel que
-mandaba el dron real hacia adelante:
+In simulation (1 m, 20 s, logs in `logs/sim/`) it was tested with a 3° pitch bias and a -2° roll
+bias (`--test-pitch-bias 3 --test-roll-bias -2`), which has the same effect as the tilt that
+pushed the real drone forward:
 
-| Prueba | Desplazamiento máx. | RMS a la altura | Aterrizó a |
+| Test | Max. displacement | RMS at altitude | Landed at |
 |---|---|---|---|
-| Sin control, con sesgo | más de 1 m (perdió los tags) | | |
-| PD + integral, con sesgo | 30 cm | 11 cm | 3 cm |
-| PD + L1, con sesgo | 11 cm | 3 cm | 1 cm |
-| PD + L1, sin sesgo | 9 cm | 3 cm | 2 cm |
+| No control, with bias | over 1 m (lost the tags) | | |
+| PD + integral, with bias | 30 cm | 11 cm | 3 cm |
+| PD + L1, with bias | 11 cm | 3 cm | 1 cm |
+| PD + L1, no bias | 9 cm | 3 cm | 2 cm |
 
-El PD solo tarda en compensar el sesgo porque su integral es lenta; el L1 lo estima en
-alrededor de un segundo. En el dron real falta resolver la imagen de la cámara antes de probarlo.
+The PD alone is slow to compensate for the bias because its integral is slow; L1 estimates it
+in about a second. On the real drone the camera image still has to be sorted out before this
+can be tested.
 
-## El arreglo `dd-tof-fix`
+## The `dd-tof-fix` workaround
 
-En la imagen `duckietown/dt-ros2-interface:ente-arm64v8` del 23 de septiembre de 2026, los
-parámetros de los plugins de MAVROS que trae `px4_config.yaml` no se aplican. Por eso el ToF
-nunca llega a PX4, PX4 se queda sin altura, y si salta el failsafe de batería termina
-cortando los motores en el aire. También queda `setpoint_raw/thrust_scaling = nan`, con lo que
-MAVROS descarta el empuje en OFFBOARD.
+In the `duckietown/dt-ros2-interface:ente-arm64v8` image from September 23, 2026, the MAVROS
+plugin parameters in `px4_config.yaml` are not applied. Because of that the ToF never reaches
+PX4, PX4 has no altitude, and if the battery failsafe triggers it ends up cutting the motors in
+the air. It also leaves `setpoint_raw/thrust_scaling = nan`, so MAVROS discards the thrust in
+OFFBOARD.
 
-`tools/dd-tof-fix` es un servicio de systemd para la Pi que vuelve a aplicar esos parámetros y
-reenvía el ToF cada vez que el contenedor de MAVROS arranca. Se instala con:
+`tools/dd-tof-fix` is a systemd service for the Pi that reapplies those parameters and relays
+the ToF every time the MAVROS container starts. Install it with:
 
 ```bash
 tools/dd-tof-fix/install.sh
 ```
 
-y se quita (en el dron) con:
+and remove it (on the drone) with:
 
 ```bash
 sudo systemctl disable --now dd-tof-fix && sudo rm -rf /opt/dd-tof-fix /etc/systemd/system/dd-tof-fix.service
 ```
 
-## Parámetros de PX4 que cambiamos
+## PX4 parameters we changed
 
-Partimos de `firmware/px4/duckiedrone-px4-v4.params` de Duckietown y cambiamos:
+We started from Duckietown's `firmware/px4/duckiedrone-px4-v4.params` and changed:
 
-| Parámetro | Antes | Ahora | Por qué |
+| Parameter | Before | After | Why |
 |---|---|---|---|
-| `MC_BAT_SCALE_EN` | 0 | 1 | escala el empuje con el voltaje de la batería |
-| `BAT1_V_LOAD_DROP` | 0.1 | 0.5 | sin sensor de corriente, compensa la caída de voltaje al estimar la carga |
+| `MC_BAT_SCALE_EN` | 0 | 1 | scales thrust with battery voltage |
+| `BAT1_V_LOAD_DROP` | 0.1 | 0.5 | with no current sensor, compensates for voltage sag when estimating charge |
 
-La copia completa de los 779 parámetros está en `firmware/px4/px4_params_2026-10-08.tsv`.
+The full copy of all 779 parameters is in `firmware/px4/px4_params_2026-10-08.tsv`.
 
-## Pendiente
+## To do
 
-- Reducir el sobrepaso al despegar en la simulación (estimación de hover).
-- Control horizontal (odometría visual o flujo óptico con la cámara).
-- Medir el dron para corregir masa y posiciones estimadas del URDF.
-- Reportar el error de `dt-ros2-interface` a Duckietown.
+- Reduce the takeoff overshoot in simulation (hover thrust estimate).
+- Horizontal control (visual odometry or optical flow with the camera).
+- Measure the drone to correct the estimated mass and positions in the URDF.
+- Report the `dt-ros2-interface` bug to Duckietown.
 
-## Créditos y licencias
+## Credits and licenses
 
-Las mallas STL de `src/duckiedrone_dd24/meshes/` (placas, patas, soportes y hélices del DD24)
-son de Duckietown y vienen de su repositorio
-[dt-duckiebot-interface](https://github.com/duckietown/dt-duckiebot-interface/tree/ente/packages/STL).
-Están sujetas a la licencia de Duckietown
+The STL meshes in `src/duckiedrone_dd24/meshes/` (DD24 plates, legs, mounts and propellers)
+belong to Duckietown and come from their
+[dt-duckiebot-interface](https://github.com/duckietown/dt-duckiebot-interface/tree/ente/packages/STL)
+repository. They are covered by the Duckietown license
 ([LICENSE.pdf](https://github.com/duckietown/dt-duckiebot-interface/blob/ente/LICENSE.pdf)),
-no a la de este repositorio. Lo mismo aplica a `firmware/px4/duckiedrone-px4-v4.params` y
-`firmware/betaflight/MAMBAF405MK2V2.conf`, que son configuraciones publicadas por Duckietown.
+not by this repository's license. The same applies to `firmware/px4/duckiedrone-px4-v4.params`
+and `firmware/betaflight/MAMBAF405MK2V2.conf`, which are configurations published by Duckietown.
 
-El firmware de `firmware/px4/` es PX4 (licencia BSD 3-Clause) compilado por Duckietown
-(`dd24-mamba-f405-mk2-v1.15.4-1`); el bootloader `omnibusf4sd_bl` es el que publica PX4.
-Betaflight (`firmware/betaflight/betaflight_4.3.2_STM32F405.hex`) tiene licencia GPL-3.0.
+The firmware in `firmware/px4/` is PX4 (BSD 3-Clause license) built by Duckietown
+(`dd24-mamba-f405-mk2-v1.15.4-1`); the `omnibusf4sd_bl` bootloader is the one PX4 publishes.
+Betaflight (`firmware/betaflight/betaflight_4.3.2_STM32F405.hex`) is licensed under GPL-3.0.
 
-Las imágenes de los AprilTags de `tools/apriltags/img/` (familia tag36h11) son las oficiales de
-[AprilRobotics/apriltag-imgs](https://github.com/AprilRobotics/apriltag-imgs) (licencia BSD-2).
+The AprilTag images in `tools/apriltags/img/` (tag36h11 family) are the official ones from
+[AprilRobotics/apriltag-imgs](https://github.com/AprilRobotics/apriltag-imgs) (BSD-2 license).
 
-El resto del código (paquete `duckiedrone_dd24`, `tools/`) es nuestro.
+The rest of the code (the `duckiedrone_dd24` package, `tools/`) is ours.

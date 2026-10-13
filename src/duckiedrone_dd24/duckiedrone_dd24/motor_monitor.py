@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Muestra en vivo inclinación (IMU) y la salida de PX4 a cada motor (/mavros/rc/out).
+"""Live view of tilt (IMU) and the PX4 output to each motor (/mavros/rc/out).
 
-Prueba SIN HÉLICES: arma en STABILIZED con algo de throttle e inclina el dron con la mano.
-  - Nariz abajo  (pitch +) -> deben SUBIR los motores de ADELANTE: m1_FR y m3_FL
-  - Lado derecho abajo (roll +) -> deben SUBIR los motores DERECHOS: m1_FR y m4_RR
+Test WITHOUT PROPELLERS: arm in STABILIZED with some throttle and tilt the drone by hand.
+  - Nose down  (pitch +) -> the FRONT motors should go UP: m1_FR and m3_FL
+  - Right side down (roll +) -> the RIGHT motors should go UP: m1_FR and m4_RR
 """
 import math
 import time
@@ -22,9 +22,9 @@ def main():
                           qos_profile_sensor_data)
     n.create_subscription(RCOut, "/mavros/rc/out", lambda m: st.__setitem__("m", list(m.channels[:4])),
                           qos_profile_sensor_data)
-    print("roll+ = derecha abajo, pitch+ = nariz abajo.  Ctrl-C para salir")
+    print("roll+ = right side down, pitch+ = nose down.  Ctrl-C to exit")
     print(f"{'roll':>7} {'pitch':>7} | {'m1_FR':>6} {'m3_FL':>6} | {'m2_RL':>6} {'m4_RR':>6} | "
-          "adelante-atrás  derecha-izq")
+          "front-back  right-left")
     try:
         while rclpy.ok():
             end = time.monotonic() + 0.25
@@ -35,7 +35,7 @@ def main():
                 continue
             o = q.orientation
             roll = math.degrees(math.atan2(2 * (o.w * o.x + o.y * o.z), 1 - 2 * (o.x * o.x + o.y * o.y)))
-            # FLU (ROS): pitch+ = nariz abajo
+            # FLU (ROS): pitch+ = nose down
             pitch = math.degrees(math.asin(max(-1, min(1, 2 * (o.w * o.y - o.z * o.x)))))
             m1, m2, m3, m4 = m
             print(f"{roll:+7.1f} {pitch:+7.1f} | {m1:6d} {m3:6d} | {m2:6d} {m4:6d} | "

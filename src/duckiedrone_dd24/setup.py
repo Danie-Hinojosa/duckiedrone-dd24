@@ -20,7 +20,7 @@ setup(
         ('share/' + package_name + '/sim/airframes', glob('sim/airframes/*')),
         ('share/' + package_name + '/sim/worlds', glob('sim/worlds/*')),
     ] + [
-        # modelos de Gazebo (dd24 y los AprilTags), con todas sus subcarpetas
+        # Gazebo models (dd24 and the AprilTags), with all their subfolders
         (os.path.join('share', package_name, root), [os.path.join(root, f) for f in files])
         for root, _, files in os.walk('sim/models') if files
     ],
@@ -28,7 +28,7 @@ setup(
     zip_safe=True,
     maintainer='Daniel Eduardo Hinojosa Alvarado',
     maintainer_email='A00838156@tec.mx',
-    description='Modelo, visualización y control de altura del Duckiedrone DD24-B.',
+    description='Model, visualization and altitude control for the Duckiedrone DD24-B.',
     license='MIT',
     entry_points={
         'console_scripts': [

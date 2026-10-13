@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Mundo del laboratorio para el DD24: piso liso (como el del laboratorio) con AprilTags tag36h11
-  en el piso. Basado en worlds/default.sdf de PX4 1.15.4.
+  Lab world for the DD24: plain floor (like the lab's) with tag36h11 AprilTags
+  on the floor. Based on worlds/default.sdf from PX4 1.15.4.
 -->
 <sdf version="1.9">
   <world name="dd24_lab">
@@ -243,7 +243,7 @@
       <elevation>0</elevation>
     </spherical_coordinates>
 
-    <!-- AprilTags tag36h11 en el piso: misma cuadrícula que el PDF (cada 0.4 m, despegue en 0,0) -->
+    <!-- tag36h11 AprilTags on the floor: same grid as the PDF (0.4 m spacing, takeoff at 0,0) -->
     <include>
       <uri>model://apriltag36h11_0</uri>
       <name>apriltag36h11_0</name>

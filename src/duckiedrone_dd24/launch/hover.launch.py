@@ -1,6 +1,6 @@
-"""Prueba de hover con control de altura propio. Se corre EN EL DRON (contenedor con MAVROS):
+"""Hover test with our own altitude controller. Runs ON THE DRONE (container with MAVROS):
     ros2 launch duckiedrone_dd24 hover.launch.py height:=1.0 hold:=20.0
-Los demás ajustes salen de config/hover.yaml.
+All other settings come from config/hover.yaml.
 """
 import os
 

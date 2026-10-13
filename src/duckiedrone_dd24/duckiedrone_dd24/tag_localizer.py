@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Posición del dron a partir de AprilTags (tag36h11) pegados en el piso.
+"""Drone position from AprilTags (tag36h11) taped to the floor.
 
-Detecta los tags con OpenCV en la imagen de la cámara (ojo de pez), corrige la distorsión con
-un modelo equidistante, resuelve la pose de cada tag respecto a la cámara y, con el mapa de los
-tags y la posición de la cámara en el dron, calcula la pose de base_link en el marco "tags"
-(origen en el punto de despegue, x hacia el frente del acomodo, z hacia arriba).
+Detects the tags with OpenCV in the (fisheye) camera image, undistorts them with an
+equidistant model, solves each tag's pose relative to the camera and, using the tag map and
+the camera's mounting position on the drone, computes the base_link pose in the "tags" frame
+(origin at the takeoff point, x toward the front of the layout, z up).
 
-Publica:
+Publishes:
   /dd24/tag_pose (geometry_msgs/PoseStamped, frame_id = tags)
-  /dd24/tag_debug (sensor_msgs/Image, opcional): imagen con los tags detectados
+  /dd24/tag_debug (sensor_msgs/Image, optional): image with the detected tags drawn
 """
 import math
 
@@ -20,7 +20,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image
 
-# Mapa por defecto: la cuadrícula del PDF (x al frente, y a la izquierda, cada 0.4 m)
+# Default map: the grid from the PDF (x forward, y left, 0.4 m spacing)
 DEFAULT_MAP = {0: (0.8, 0.4), 1: (0.8, 0.0), 2: (0.8, -0.4), 3: (0.4, 0.4), 4: (0.4, 0.0), 5: (0.4, -0.4),
                6: (0.0, 0.4), 7: (0.0, -0.4), 8: (-0.4, 0.4), 9: (-0.4, 0.0), 10: (-0.4, -0.4)}
 
@@ -51,18 +51,18 @@ class TagLocalizer(Node):
     def __init__(self):
         super().__init__("tag_localizer")
         p = self.declare_parameter
-        self.tag_size = p("tag_size", 0.16).value                  # lado del cuadro negro [m]
+        self.tag_size = p("tag_size", 0.16).value                  # side of the black square [m]
         self.image_topic = p("image_topic", "/dd24/camera/image").value
-        self.compressed = p("compressed", False).value               # True en el dron (JPEG)
-        # Modelo de la cámara: ojo de pez equidistante (r = f * theta)
+        self.compressed = p("compressed", False).value               # True on the drone (JPEG)
+        # Camera model: equidistant fisheye (r = f * theta)
         self.f = p("focal_px", 229.2).value
-        self.cx = p("cx", -1.0).value                                # -1: centro de la imagen
+        self.cx = p("cx", -1.0).value                                # -1: image center
         self.cy = p("cy", -1.0).value
         self.D = np.array(p("fisheye_d", [0.0, 0.0, 0.0, 0.0]).value, dtype=float).reshape(4, 1)
-        # Cámara en base_link (camera_link del URDF; x a lo largo del eje óptico)
+        # Camera in base_link (camera_link from the URDF; x along the optical axis)
         cam_xyz = p("camera_xyz", [0.1277, 0.0, 0.0082]).value
         cam_rpy = p("camera_rpy", [0.0, 0.8779, 0.0]).value
-        # Giro de la textura/hoja del tag respecto al marco "tags" (se calibra en la simulación)
+        # Rotation of the tag texture/sheet relative to the "tags" frame (calibrated in simulation)
         self.tag_yaw = p("tag_yaw_offset", -math.pi / 2).value
         ids = p("tag_ids", list(DEFAULT_MAP.keys())).value
         xs = p("tag_x", [DEFAULT_MAP[i][0] for i in DEFAULT_MAP]).value
@@ -71,7 +71,7 @@ class TagLocalizer(Node):
         self.max_dist = p("max_tag_distance", 3.0).value
 
         self.tag_map = {int(i): transform(rot_rpy(0, 0, self.tag_yaw), [x, y, 0.0]) for i, x, y in zip(ids, xs, ys)}
-        # camera_link -> marco óptico de OpenCV (x derecha, y abajo, z al frente)
+        # camera_link -> OpenCV optical frame (x right, y down, z forward)
         T_base_link = transform(rot_rpy(*cam_rpy), cam_xyz)
         T_link_opt = transform(rot_rpy(-math.pi / 2, 0, -math.pi / 2), [0, 0, 0])
         self.T_opt_base = np.linalg.inv(T_base_link @ T_link_opt)
@@ -88,7 +88,7 @@ class TagLocalizer(Node):
         msg_type = CompressedImage if self.compressed else Image
         self.create_subscription(msg_type, self.image_topic, self.on_image, qos_profile_sensor_data)
         self.n_frames = 0
-        self.get_logger().info(f"{len(self.tag_map)} tags en el mapa, lado {self.tag_size} m, imagen {self.image_topic}")
+        self.get_logger().info(f"{len(self.tag_map)} tags in map, size {self.tag_size} m, image {self.image_topic}")
 
     def to_gray(self, msg):
         if self.compressed:
@@ -110,7 +110,7 @@ class TagLocalizer(Node):
             for c, tid in zip(corners, ids.flatten()):
                 if int(tid) not in self.tag_map:
                     continue
-                # esquinas sin distorsión, en coordenadas normalizadas
+                # undistorted corners, in normalized coordinates
                 und = cv2.fisheye.undistortPoints(c.reshape(-1, 1, 2).astype(np.float64), K, self.D)
                 ok, rvec, tvec = cv2.solvePnP(self.obj, und.reshape(-1, 2), np.eye(3), None,
                                               flags=cv2.SOLVEPNP_IPPE_SQUARE)
@@ -123,13 +123,13 @@ class TagLocalizer(Node):
             self.publish_debug_image(gray, corners, ids, msg.header)
         if not poses:
             return
-        # promedio ponderado por cercanía (los tags cercanos se miden mejor)
+        # average weighted by distance (closer tags are measured more accurately)
         wts = np.array([1.0 / max(d, 0.2) ** 2 for _, d, _ in poses])
         pos = sum(wt * T[:3, 3] for wt, (T, _, _) in zip(wts, poses)) / wts.sum()
         yaws = [math.atan2(T[1, 0], T[0, 0]) for T, _, _ in poses]
         yaw = math.atan2(sum(wt * math.sin(a) for wt, a in zip(wts, yaws)), sum(wt * math.cos(a) for wt, a in zip(wts, yaws)))
         best = poses[int(np.argmax(wts))][0]
-        # roll/pitch del tag más cercano (la IMU los mide mejor; se publican como referencia)
+        # roll/pitch from the closest tag (the IMU measures them better; published for reference)
         R = rot_rpy(math.atan2(best[2, 1], best[2, 2]), math.asin(max(-1, min(1, -best[2, 0]))), yaw)
         out = PoseStamped()
         out.header.stamp = msg.header.stamp

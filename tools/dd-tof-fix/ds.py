@@ -1,5 +1,5 @@
-# Aplica a los nodos plugin de MAVROS (/mavros/<plugin>) los parámetros `/**/<plugin>` del
-# px4_config.yaml de Duckietown, que mavros_node no les pasa (bug de dt-ros2-interface 2026-09-23).
+# Applies the `/**/<plugin>` parameters from Duckietown's px4_config.yaml to the MAVROS plugin
+# nodes (/mavros/<plugin>), since mavros_node does not pass them on (dt-ros2-interface bug 2026-09-23).
 import os, sys, yaml, rclpy
 from rcl_interfaces.srv import SetParameters
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
@@ -11,18 +11,18 @@ def value(v):
     if isinstance(v, int):   return ParameterValue(type=ParameterType.PARAMETER_INTEGER, integer_value=v)
     if isinstance(v, float): return ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=v)
     if isinstance(v, str):   return ParameterValue(type=ParameterType.PARAMETER_STRING, string_value=v)
-    raise TypeError(f"tipo no soportado: {v!r}")
+    raise TypeError(f"unsupported type: {v!r}")
 
 conf = yaml.safe_load(open(CFG))
 rclpy.init()
 node = rclpy.create_node("dd_mavros_param_fix")
-# use_quaternion no se puede cambiar en caliente con rmw_zenoh (mavros recrea la suscripción y
-# falla con "Invalid history policy"); se omite: usar /mavros/setpoint_raw/attitude en su lugar.
+# use_quaternion cannot be changed at runtime with rmw_zenoh (mavros recreates the subscription and
+# fails with "Invalid history policy"), so it is skipped: use /mavros/setpoint_raw/attitude instead.
 SKIP = {("/mavros/setpoint_attitude", "use_quaternion")}
-ok = True  # solo el distance_sensor es crítico (sin él PX4 no tiene altitud)
+ok = True  # only distance_sensor is critical (without it PX4 has no altitude)
 for key, body in conf.items():
     if not key.startswith("/**/"):
-        continue  # /mavros (allowlist) sí se aplica normalmente
+        continue  # /mavros (allowlist) is applied normally
     target = "/mavros/" + key[len("/**/"):]
     params = [Parameter(name=k, value=value(v)) for k, v in body["ros__parameters"].items()
               if (target, k) not in SKIP]
@@ -30,12 +30,12 @@ for key, body in conf.items():
         continue
     cli = node.create_client(SetParameters, target + "/set_parameters")
     if not cli.wait_for_service(timeout_sec=20):
-        print(f"{target}: servicio no disponible"); ok &= target != "/mavros/distance_sensor"; continue
+        print(f"{target}: service not available"); ok &= target != "/mavros/distance_sensor"; continue
     fut = cli.call_async(SetParameters.Request(parameters=params))
     rclpy.spin_until_future_complete(node, fut, timeout_sec=10)
     res = fut.result()
     good = res is not None and all(r.successful for r in res.results)
-    print(f"{target}: {[p.name for p in params]} -> {'OK' if good else 'FALLO'}")
+    print(f"{target}: {[p.name for p in params]} -> {'OK' if good else 'FAILED'}")
     if target == "/mavros/distance_sensor":
         ok &= good
 sys.exit(0 if ok else 1)

@@ -1,6 +1,6 @@
-# MAVROS en la laptop, conectado a PX4 SITL (puerto offboard de PX4: 14540 -> 14580).
-# Mismos plugins que usa Duckietown en el dron, y thrust_scaling = 1.0 para setpoint_raw
-# (en el dron eso lo arregla dd-tof-fix).
+# MAVROS on the laptop, connected to PX4 SITL (PX4 offboard port: 14540 -> 14580).
+# Same plugins Duckietown uses on the drone, and thrust_scaling = 1.0 for setpoint_raw
+# (on the drone, dd-tof-fix takes care of that).
 /mavros_node:
   ros__parameters:
     fcu_url: "udp://:14540@127.0.0.1:14580"
