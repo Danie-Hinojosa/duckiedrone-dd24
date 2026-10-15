@@ -13,6 +13,7 @@ MAVROS on the Raspberry Pi.
 ```
 src/duckiedrone_dd24/   ROS 2 package: URDF, meshes, launch files, RViz and nodes
 tools/dd-tof-fix/       service installed on the drone (see below)
+docs/                   write-ups, e.g. offboard-arming-fix.md (Duckietown PID exercise does not arm)
 tools/flight/           run_hover.sh, runs the hover test from the laptop
 tools/drone_ros2_env.sh sets up a terminal to talk to the drone's ROS 2
 firmware/px4/           PX4 bootloader, firmware and parameters that we flashed

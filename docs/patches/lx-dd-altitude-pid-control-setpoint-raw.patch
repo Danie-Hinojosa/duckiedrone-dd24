@@ -1,0 +1,41 @@
+diff --git a/packages/pid_controller/pid_controller/pid_controller_node.py b/packages/pid_controller/pid_controller/pid_controller_node.py
+index 5ecf2c5..86ea2e2 100644
+--- a/packages/pid_controller/pid_controller/pid_controller_node.py
++++ b/packages/pid_controller/pid_controller/pid_controller_node.py
+@@ -64,7 +64,7 @@ from rclpy.signals import SignalHandlerOptions
+ 
+ from geometry_msgs.msg import PoseStamped, Quaternion
+ from sensor_msgs.msg import Range
+-from mavros_msgs.msg import State, Thrust, ManualControl
++from mavros_msgs.msg import State, Thrust, ManualControl, AttitudeTarget
+ from mavros_msgs.srv import SetMode, CommandBool, CommandLong
+ from std_srvs.srv import Trigger
+ from rcl_interfaces.msg import SetParametersResult
+@@ -183,6 +183,13 @@ class AltitudePIDNode(Node):
+             '/mavros/setpoint_attitude/thrust',
+             10,
+         )
++        # setpoint_attitude ignores PoseStamped while use_quaternion=false (dt-ros2-interface
++        # bug), so send attitude + thrust through setpoint_raw as well.
++        self.pub_raw = self.create_publisher(
++            AttitudeTarget,
++            '/mavros/setpoint_raw/attitude',
++            10,
++        )
+         self.pub_manual_control = self.create_publisher(
+             ManualControl,
+             '/mavros/manual_control/send',
+@@ -360,6 +367,13 @@ class AltitudePIDNode(Node):
+         thrust_msg.header.stamp = self.get_clock().now().to_msg()
+         thrust_msg.thrust = float(thrust_value)
+         self.pub_thrust.publish(thrust_msg)
++        raw = AttitudeTarget()
++        raw.header.stamp = thrust_msg.header.stamp
++        raw.type_mask = (AttitudeTarget.IGNORE_ROLL_RATE | AttitudeTarget.IGNORE_PITCH_RATE
++                         | AttitudeTarget.IGNORE_YAW_RATE)
++        raw.orientation = attitude_msg.pose.orientation
++        raw.thrust = float(thrust_value)
++        self.pub_raw.publish(raw)
+ 
+         # Neutral MANUAL_CONTROL stream, satisfies COM_RC_IN_MODE=3 arming health
+         # (no RC receiver on this airframe; MAVROS-sent MANUAL_CONTROL stands in for it)
